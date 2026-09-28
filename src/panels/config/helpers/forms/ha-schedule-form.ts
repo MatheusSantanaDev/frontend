@@ -426,7 +426,7 @@ class HaScheduleForm extends LitElement {
     return [
       haStyle,
       unsafeCSS(skeletonCss.replace(":root", ":host")),
-      unsafeCSS(classicPaletteCss.replace(":root", ":host")),
+      unsafeCSS(classicPaletteCss.replace(":root", "#calendar")),
       unsafeCSS(classicThemeCss),
       css`
         .form {

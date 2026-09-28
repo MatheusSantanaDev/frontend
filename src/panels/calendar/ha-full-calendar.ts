@@ -584,7 +584,7 @@ export class HAFullCalendar extends LitElement {
     return [
       haStyle,
       unsafeCSS(skeletonCss.replace(":root", ":host")),
-      unsafeCSS(classicPaletteCss.replace(":root", ":host")),
+      unsafeCSS(classicPaletteCss.replace(":root", "#calendar")),
       unsafeCSS(classicThemeCss),
       css`
         :host {
