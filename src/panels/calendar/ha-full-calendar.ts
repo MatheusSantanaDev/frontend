@@ -5,7 +5,10 @@ import allLocales from "fullcalendar/locales-all";
 import dayGridPlugin from "fullcalendar/daygrid";
 import interactionPlugin from "fullcalendar/interaction";
 import listPlugin from "fullcalendar/list";
-import { ResizeController } from "@lit-labs/observers/resize-controller";
+import skeletonCss from "fullcalendar/skeleton.css";
+import classicTheme from "fullcalendar/themes/classic";
+import classicPaletteCss from "fullcalendar/themes/classic/palette.css";
+import classicThemeCss from "fullcalendar/themes/classic/theme.css";
 import {
   mdiPlus,
   mdiViewAgenda,
@@ -14,8 +17,8 @@ import {
   mdiViewWeek,
 } from "@mdi/js";
 import type { CSSResultGroup, PropertyValues } from "lit";
-import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, query, state } from "lit/decorators";
+import { LitElement, css, html, nothing, unsafeCSS } from "lit";
+import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoize from "memoize-one";
 import { firstWeekdayIndex } from "../../common/datetime/first_weekday";
@@ -56,15 +59,37 @@ declare global {
 
 const defaultFullCalendarConfig: CalendarOptions = {
   headerToolbar: false,
-  plugins: [dayGridPlugin, listPlugin, interactionPlugin],
+  plugins: [classicTheme, dayGridPlugin, listPlugin, interactionPlugin],
   initialView: "dayGridMonth",
   dayMaxEventRows: true,
   height: "parent",
   locales: allLocales,
+  viewClass: "calendar-view",
+  dayHeaderClass: "day-header",
+  dayRowClass: "day-row",
+  dayCellClass: ({ isPast }) => (isPast ? "day-past" : ""),
+  dayCellTopClass: "day-top",
+  dayCellTopInnerClass: ({ isToday }) =>
+    isToday ? "day-number today-number" : "day-number",
+  dayCellInnerClass: "day-events",
+  eventClass: "event",
+  rowEventInnerClass: "row-event-inner",
+  listItemEventClass: "list-item-event",
+  listItemEventTimeClass: "list-item-event-time",
+  listItemEventTitleClass: "list-item-event-title",
+  popoverClass: "popover",
   views: {
+    dayGridMonth: {
+      className: "month-view",
+    },
     listWeek: {
       type: "list",
       duration: { days: 7 },
+      className: "list-view",
+      listDayClass: "list-day",
+      listDayHeaderClass: "list-day-header",
+      listDayHeaderInnerClass: ({ level }) =>
+        level ? "list-day-side-text" : "list-day-text",
     },
   },
 };
@@ -110,19 +135,11 @@ export class HAFullCalendar extends LitElement {
 
   @state() private _activeView = this.initialView;
 
-  @query("style[data-fullcalendar]") private _fullCalendarStyle?: HTMLElement;
-
-  // @ts-ignore
-  private _resizeController = new ResizeController(this, {
-    callback: () => this.calendar?.render(),
-  });
-
   disconnectedCallback(): void {
     this._clearMidnightRefreshTimeout();
     super.disconnectedCallback();
     this.calendar?.destroy();
     this.calendar = undefined;
-    this._fullCalendarStyle?.remove();
   }
 
   connectedCallback(): void {
@@ -566,11 +583,13 @@ export class HAFullCalendar extends LitElement {
   static get styles(): CSSResultGroup {
     return [
       haStyle,
+      unsafeCSS(skeletonCss.replace(":root", ":host")),
+      unsafeCSS(classicPaletteCss.replace(":root", ":host")),
+      unsafeCSS(classicThemeCss),
       css`
         :host {
           display: flex;
           flex-direction: column;
-          --fc-theme-standard-border-color: var(--divider-color);
         }
 
         .header {
@@ -664,27 +683,26 @@ export class HAFullCalendar extends LitElement {
             var(--card-background-color, white)
           );
           height: var(--calendar-height);
-          --fc-neutral-bg-color: var(
+          --fc-classic-background: var(
             --ha-card-background,
             var(--card-background-color, white)
           );
-          --fc-list-event-hover-bg-color: var(
-            --ha-card-background,
-            var(--card-background-color, white)
-          );
-          --fc-theme-standard-border-color: var(--divider-color);
-          --fc-border-color: var(--divider-color);
-          --fc-page-bg-color: var(
-            --ha-card-background,
-            var(--card-background-color, white)
-          );
+          --fc-classic-foreground: var(--primary-text-color);
+          --fc-classic-muted-foreground: var(--secondary-text-color);
+          --fc-classic-border: var(--divider-color);
+          --fc-classic-strong-border: var(--divider-color);
+          --fc-classic-primary: var(--primary-color);
+          --fc-classic-primary-foreground: var(--text-primary-color);
+          --fc-classic-muted: var(--secondary-background-color);
+          --fc-classic-faint: transparent;
+          --fc-classic-today: transparent;
         }
 
         a {
           color: inherit !important;
         }
 
-        .fc-theme-standard .fc-scrollgrid {
+        .calendar-view {
           border: 1px solid var(--divider-color);
           border-width: var(--calendar-border-width, 1px);
           border-radius: var(
@@ -693,16 +711,7 @@ export class HAFullCalendar extends LitElement {
           );
         }
 
-        .fc-theme-standard td {
-          border-bottom-left-radius: var(--mdc-shape-small, 4px);
-          border-bottom-right-radius: var(--mdc-shape-small, 4px);
-        }
-
-        .fc-scrollgrid-section-header td {
-          border: none;
-        }
-
-        th.fc-col-header-cell.fc-day {
+        .day-header {
           background-color: var(--table-header-background-color);
           color: var(--primary-text-color);
           font-size: var(--ha-font-size-xs);
@@ -710,38 +719,27 @@ export class HAFullCalendar extends LitElement {
           text-transform: uppercase;
         }
 
-        .fc-daygrid-dot-event:hover {
+        .list-item-event:hover {
           background-color: inherit;
         }
 
-        .fc-daygrid-day-top {
+        .day-top {
           text-align: center;
           padding-top: 5px;
           justify-content: center;
         }
 
-        table.fc-scrollgrid-sync-table
-          tbody
-          tr:first-child
-          .fc-daygrid-day-top {
+        .day-row:first-child .day-top {
           padding-top: 0;
         }
 
-        a.fc-daygrid-day-number {
-          float: none !important;
+        .day-number {
           font-size: var(--ha-font-size-s);
           cursor: pointer;
-        }
-
-        .fc .fc-daygrid-day-number {
           padding: 3px !important;
         }
 
-        .fc .fc-daygrid-day.fc-day-today {
-          background: inherit;
-        }
-
-        td.fc-day-today .fc-daygrid-day-number {
+        .today-number {
           height: 26px;
           color: var(--text-primary-color) !important;
           background-color: var(--primary-color);
@@ -753,106 +751,88 @@ export class HAFullCalendar extends LitElement {
           min-width: 24px;
         }
 
-        .fc-daygrid-day-events {
+        .day-events {
           margin-top: 4px;
         }
 
-        .fc-event {
+        .event {
           border-radius: var(--ha-border-radius-sm);
           line-height: var(--ha-line-height-normal);
           cursor: pointer;
         }
 
-        .fc-daygrid-block-event .fc-event-main {
+        .row-event-inner {
           padding: 0 1px;
         }
 
-        .fc-day-past .fc-daygrid-day-events {
+        .day-past .day-events {
           opacity: 0.5;
         }
 
-        .fc-icon-x:before {
-          font-family: var(--ha-font-family-body);
-          content: "X";
-        }
-
-        .fc-popover {
+        .popover {
           background-color: var(--primary-background-color) !important;
         }
 
-        .fc-popover-header {
+        .popover .day-header {
           background-color: var(--secondary-background-color) !important;
         }
 
-        .fc-theme-standard .fc-list-day-frame {
+        .list-day-header {
           background-color: transparent;
         }
 
-        .fc-list.fc-view,
-        .fc-list-event.fc-event td {
+        .list-view,
+        .list-day,
+        .list-view .list-item-event {
           border: none;
         }
 
-        .fc-list-day.fc-day th {
+        .list-day-header {
           border-bottom: none;
-          border-top: 1px solid var(--fc-theme-standard-border-color, #ddd) !important;
+          border-top: 1px solid var(--divider-color);
         }
 
-        .fc-list-day-text {
+        .list-day-text {
           font-size: var(--ha-font-size-l);
           font-weight: var(--ha-font-weight-normal);
         }
 
-        .fc-list-day-side-text {
+        .list-day-side-text {
           font-size: var(--ha-font-size-l);
           font-weight: var(--ha-font-weight-normal);
           color: var(--primary-color);
         }
 
-        .fc-list-table td,
-        .fc-list-day-frame {
+        .list-view .list-item-event,
+        .list-day-text,
+        .list-day-side-text {
           padding-top: 12px;
           padding-bottom: 12px;
         }
 
-        :host([narrow])
-          .fc-dayGridMonth-view
-          .fc-daygrid-dot-event
-          .fc-event-time,
-        :host([narrow])
-          .fc-dayGridMonth-view
-          .fc-daygrid-dot-event
-          .fc-event-title {
+        :host([narrow]) .month-view .list-item-event-time,
+        :host([narrow]) .month-view .list-item-event-title {
           display: none;
         }
 
-        :host([narrow]) .fc-dayGridMonth-view .fc-daygrid-event-harness {
-          margin-top: 0 !important;
-        }
-
-        :host([narrow]) .fc-dayGridMonth-view .fc-daygrid-day-events {
+        :host([narrow]) .month-view .day-events {
           display: flex;
           align-items: center;
           justify-content: center;
           flex-wrap: wrap;
         }
 
-        :host([narrow]) .fc-dayGridMonth-view .fc-scrollgrid-sync-table {
-          overflow: hidden;
-        }
-
-        .fc-scroller::-webkit-scrollbar {
+        #calendar ::-webkit-scrollbar {
           width: 0.4rem;
           height: 0.4rem;
         }
 
-        .fc-scroller::-webkit-scrollbar-thumb {
+        #calendar ::-webkit-scrollbar-thumb {
           border-radius: var(--ha-border-radius-sm);
           background: var(--scrollbar-thumb-color);
         }
 
-        .fc-scroller {
-          overflow-y: auto;
+        #calendar * {
           scrollbar-color: var(--scrollbar-thumb-color) transparent;
           scrollbar-width: thin;
         }

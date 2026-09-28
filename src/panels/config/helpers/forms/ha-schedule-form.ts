@@ -3,10 +3,14 @@ import { Calendar } from "fullcalendar";
 import allLocales from "fullcalendar/locales-all";
 import interactionPlugin from "fullcalendar/interaction";
 import timeGridPlugin from "fullcalendar/timegrid";
+import skeletonCss from "fullcalendar/skeleton.css";
+import classicTheme from "fullcalendar/themes/classic";
+import classicPaletteCss from "fullcalendar/themes/classic/palette.css";
+import classicThemeCss from "fullcalendar/themes/classic/theme.css";
 import type { Day } from "date-fns";
 import { addDays, isSameDay, isSameWeek, nextDay } from "date-fns";
 import type { CSSResultGroup, PropertyValues } from "lit";
-import { LitElement, css, html, nothing } from "lit";
+import { LitElement, css, html, nothing, unsafeCSS } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { formatTime24h } from "../../../../common/datetime/format_time";
@@ -22,7 +26,7 @@ import type { HomeAssistant } from "../../../../types";
 import { showScheduleBlockInfoDialog } from "./show-dialog-schedule-block-info";
 
 const defaultFullCalendarConfig: CalendarOptions = {
-  plugins: [timeGridPlugin, interactionPlugin],
+  plugins: [classicTheme, timeGridPlugin, interactionPlugin],
   headerToolbar: false,
   initialView: "timeGridWeek",
   editable: true,
@@ -35,6 +39,10 @@ const defaultFullCalendarConfig: CalendarOptions = {
   locales: allLocales,
   firstDay: 1,
   dayHeaderFormat: { weekday: "short", month: undefined, day: undefined },
+  viewClass: "calendar-view",
+  dayHeaderClass: "day-header",
+  columnEventClass: "column-event",
+  columnEventTimeClass: "event-time",
 };
 
 @customElement("ha-schedule-form")
@@ -64,8 +72,6 @@ class HaScheduleForm extends LitElement {
   @state() private _sunday!: ScheduleDay[];
 
   @state() private calendar?: Calendar;
-
-  @query("style[data-fullcalendar]") private _fullCalendarStyle?: HTMLElement;
 
   @query("[dialogInitialFocus]") private _focusElement?: HTMLElement;
 
@@ -100,7 +106,6 @@ class HaScheduleForm extends LitElement {
     super.disconnectedCallback();
     this.calendar?.destroy();
     this.calendar = undefined;
-    this._fullCalendarStyle?.remove();
   }
 
   public connectedCallback(): void {
@@ -188,6 +193,12 @@ class HaScheduleForm extends LitElement {
       ...defaultFullCalendarConfig,
       locale: this.hass.language,
       firstDay: firstWeekdayIndex(this.hass.locale),
+      slotHeaderFormat: {
+        hour: "numeric",
+        minute: undefined,
+        hour12: useAmPm(this.hass.locale),
+        meridiem: useAmPm(this.hass.locale) ? "narrow" : false,
+      },
       eventTimeFormat: {
         hour: useAmPm(this.hass.locale) ? "numeric" : "2-digit",
         minute: useAmPm(this.hass.locale) ? "numeric" : "2-digit",
@@ -414,6 +425,9 @@ class HaScheduleForm extends LitElement {
   static get styles(): CSSResultGroup {
     return [
       haStyle,
+      unsafeCSS(skeletonCss.replace(":root", ":host")),
+      unsafeCSS(classicPaletteCss.replace(":root", ":host")),
+      unsafeCSS(classicThemeCss),
       css`
         .form {
           color: var(--primary-text-color);
@@ -429,53 +443,45 @@ class HaScheduleForm extends LitElement {
           height: 450px;
           width: 100%;
           user-select: none;
-          --fc-border-color: var(--divider-color);
-          --fc-event-border-color: var(--divider-color);
+          --fc-classic-background: var(--card-background-color);
+          --fc-classic-foreground: var(--primary-text-color);
+          --fc-classic-muted-foreground: var(--secondary-text-color);
+          --fc-classic-border: var(--divider-color);
+          --fc-classic-strong-border: var(--divider-color);
+          --fc-classic-primary: var(--primary-color);
+          --fc-classic-primary-foreground: var(--text-primary-color);
+          --fc-classic-muted: var(--secondary-background-color);
         }
 
-        .fc-v-event .fc-event-time {
+        .event-time {
           white-space: inherit;
         }
-        .fc-theme-standard .fc-scrollgrid {
+        .column-event {
+          border-color: var(--divider-color);
+        }
+        .calendar-view {
           border: 1px solid var(--divider-color);
           border-radius: var(--mdc-shape-small, 4px);
         }
 
-        .fc-scrollgrid-section-header td {
-          border: none;
-        }
-        :host([narrow]) .fc-scrollgrid-sync-table {
-          overflow: hidden;
-        }
-        table.fc-scrollgrid-sync-table
-          tbody
-          tr:first-child
-          .fc-daygrid-day-top {
-          padding-top: 0;
-        }
-        .fc-scroller::-webkit-scrollbar {
+        #calendar ::-webkit-scrollbar {
           width: 0.4rem;
           height: 0.4rem;
         }
-        .fc-scroller::-webkit-scrollbar-thumb {
+        #calendar ::-webkit-scrollbar-thumb {
           border-radius: var(--ha-border-radius-sm);
           background: var(--scrollbar-thumb-color);
         }
-        .fc-scroller {
-          overflow-y: auto;
+        #calendar * {
           scrollbar-color: var(--scrollbar-thumb-color) transparent;
           scrollbar-width: thin;
-        }
-
-        .fc-timegrid-event-short .fc-event-time:after {
-          content: ""; /* prevent trailing dash in half hour events since we do not have event titles */
         }
 
         a {
           color: inherit !important;
         }
 
-        th.fc-col-header-cell.fc-day {
+        .day-header {
           background-color: var(--table-header-background-color);
           color: var(--primary-text-color);
           font-size: var(--ha-font-size-xs);
