@@ -17,7 +17,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="Home Assistant">
     <meta name="referrer" content="same-origin" />
-    <meta name="theme-color" content="{{ theme_color }}" />
+    <meta name="theme-color" content="#2980b9" />
     <meta name="color-scheme" content="dark light" />
     <%= renderTemplate("_style_base.html.template") %>
     <style>
@@ -153,14 +153,7 @@
       }
     </script>
     <% if (obj.hassUrl === "") { %>
-      <script>
-        {%- for extra_module in extra_modules -%}
-        // Caught, or the boot recovery guard reads it as a stale build.
-        import("{{ extra_module }}").catch(function (err) {
-          console.error("Failed to load extra module {{ extra_module }}", err);
-        });
-        {%- endfor -%}
-      </script>
+      
     <% } %>
     <script>
         if (!window.latestJS) {
@@ -174,9 +167,7 @@
     <% if (obj.hassUrl === "") { %>
       <script>
         if (!window.latestJS) {
-          {%- for extra_script in extra_js_es5 -%}
-          _ls("{{ extra_script }}");
-          {%- endfor -%}
+          
         }
       </script>
     <% } %>
