@@ -2,6 +2,7 @@ import type { PropertyValues, TemplateResult } from "lit";
 import { html, LitElement } from "lit";
 import { customElement, query } from "lit/decorators";
 import type { DemoCardConfig } from "../../components/demo-card";
+import { MAP_STYLES } from "../../../../src/common/map/map-styles";
 import { provideHass } from "../../../../src/fake_data/provide_hass";
 import type { MapCardConfig } from "../../../../src/panels/lovelace/cards/types";
 import "../../components/demo-cards";
@@ -179,6 +180,52 @@ const CONFIGS = [
     config: {
       type: "map",
       scale_ruler: true,
+      entities: ["zone.home"],
+    },
+  },
+  ...MAP_STYLES.map((mapStyle) => ({
+    heading: `Map style: ${mapStyle}`,
+    config: {
+      type: "map" as const,
+      map_style: mapStyle,
+      default_zoom: 14,
+      entities: ["zone.home"],
+    },
+  })),
+  {
+    heading: "Map style: recolored",
+    config: {
+      type: "map",
+      map_style: {
+        base: "colorful",
+        recolor: {
+          saturate: -0.6,
+          rotate_hue: 200,
+          tint: { amount: 0.3, color: "#2196f3" },
+        },
+      },
+      default_zoom: 14,
+      entities: ["zone.home"],
+    },
+  },
+  {
+    heading: "Map style: recolored, on the default style",
+    config: {
+      type: "map",
+      map_style: { recolor: { saturate: -1 } },
+      default_zoom: 14,
+      entities: ["zone.home"],
+    },
+  },
+  {
+    heading: "Map style: individual colors",
+    config: {
+      type: "map",
+      map_style: {
+        base: "toner",
+        colors: { water: "#b3e5fc", land: "#fffde7", roadMotorway: "#ffab91" },
+      },
+      default_zoom: 14,
       entities: ["zone.home"],
     },
   },
