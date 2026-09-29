@@ -90,28 +90,40 @@ export class MoreInfoHistory extends LitElement {
                     ${this.hass.localize("ui.components.history_charts.error")}:
                     ${this._error.message || this._error.code}
                   </ha-alert>`
-                : this._statistics
-                  ? html`<statistics-chart
+                : this._useColorTimeline
+                  ? html`<zhijia-light-timeline
                       .hass=${this.hass}
-                      .isLoadingData=${!this._statistics}
-                      .statisticsData=${this._statistics}
-                      .metadata=${this._metadata}
-                      .statTypes=${statTypes}
-                      .names=${this._statNames}
-                      hide-legend
-                      .clickForMoreInfo=${false}
-                    ></statistics-chart>`
-                  : html`<state-history-charts
-                      up-to-now
-                      .hass=${this.hass}
-                      .historyData=${this._stateHistory}
-                      .isLoadingData=${!this._stateHistory}
-                      .showNames=${false}
-                      .clickForMoreInfo=${false}
-                    ></state-history-charts>`
+                      .entityId=${this.entityId}
+                    ></zhijia-light-timeline>`
+                  : this._statistics
+                    ? html`<statistics-chart
+                        .hass=${this.hass}
+                        .isLoadingData=${!this._statistics}
+                        .statisticsData=${this._statistics}
+                        .metadata=${this._metadata}
+                        .statTypes=${statTypes}
+                        .names=${this._statNames}
+                        hide-legend
+                        .clickForMoreInfo=${false}
+                      ></statistics-chart>`
+                    : html`<state-history-charts
+                        up-to-now
+                        .hass=${this.hass}
+                        .historyData=${this._stateHistory}
+                        .isLoadingData=${!this._stateHistory}
+                        .showNames=${false}
+                        .clickForMoreInfo=${false}
+                      ></state-history-charts>`
             }`
         : ""
     }`;
+  }
+
+  private get _useColorTimeline(): boolean {
+    return (
+      computeDomain(this.entityId) === "light" &&
+      customElements.get("zhijia-light-timeline") !== undefined
+    );
   }
 
   protected willUpdate(changedProps: PropertyValues<this>): void {
@@ -312,5 +324,11 @@ export class MoreInfoHistory extends LitElement {
 declare global {
   interface HTMLElementTagNameMap {
     "ha-more-info-history": MoreInfoHistory;
+    "zhijia-light-timeline": ZhiJiaLightTimelineElement;
   }
+}
+
+interface ZhiJiaLightTimelineElement extends HTMLElement {
+  hass: HomeAssistant;
+  entityId: string;
 }
