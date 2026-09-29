@@ -94,6 +94,10 @@ export const coreCards: Card[] = [
     showElement: true,
   },
   {
+    type: "spotify",
+    showElement: true,
+  },
+  {
     type: "thermostat",
     showElement: true,
   },

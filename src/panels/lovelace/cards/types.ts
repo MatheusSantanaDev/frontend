@@ -479,6 +479,12 @@ export interface MediaControlCardConfig extends LovelaceCardConfig {
   theme?: string;
 }
 
+export interface SpotifyCardConfig extends LovelaceCardConfig {
+  entity: string;
+  name?: string | EntityNameItem | EntityNameItem[];
+  theme?: string;
+}
+
 export interface GraphEntityConfig {
   entity: string;
   name?: string | EntityNameItem | EntityNameItem[];

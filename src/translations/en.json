@@ -10516,6 +10516,10 @@
               "name": "Media control",
               "description": "This card is used to display media player entities on an interface with easy to use controls."
             },
+            "spotify": {
+              "name": "Spotify",
+              "description": "This card shows what is playing on Spotify with progress, controls and volume."
+            },
             "picture": {
               "name": "Picture",
               "description": "This card allows you to set an image to use for navigation to various paths in your interface or to perform an action.",
