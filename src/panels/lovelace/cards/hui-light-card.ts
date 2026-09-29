@@ -1,4 +1,4 @@
-import { mdiDotsVertical } from "@mdi/js";
+import { mdiChartBoxOutline, mdiDotsVertical } from "@mdi/js";
 import "@thomasloven/round-slider";
 import type { PropertyValues } from "lit";
 import { LitElement, css, html, nothing } from "lit";
@@ -102,6 +102,13 @@ export class HuiLightCard extends LitElement implements LovelaceCard {
           )}
           .path=${mdiDotsVertical}
           @click=${this._handleMoreInfo}
+          tabindex="0"
+        ></ha-icon-button>
+        <ha-icon-button
+          class="history"
+          .label=${this.hass!.localize("ui.dialogs.more_info_control.history")}
+          .path=${mdiChartBoxOutline}
+          @click=${this._handleHistory}
           tabindex="0"
         ></ha-icon-button>
 
@@ -246,6 +253,13 @@ export class HuiLightCard extends LitElement implements LovelaceCard {
     });
   }
 
+  private _handleHistory() {
+    fireEvent(this, "hass-more-info", {
+      entityId: this._config!.entity,
+      view: "history",
+    });
+  }
+
   static styles = css`
     ha-card {
       height: 100%;
@@ -264,6 +278,19 @@ export class HuiLightCard extends LitElement implements LovelaceCard {
       right: 0;
       inset-inline-start: initial;
       inset-inline-end: 0;
+      border-radius: var(--ha-border-radius-pill);
+      color: var(--secondary-text-color);
+      z-index: 1;
+      direction: var(--direction);
+    }
+
+    .history {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      right: 48px;
+      inset-inline-start: initial;
+      inset-inline-end: 48px;
       border-radius: var(--ha-border-radius-pill);
       color: var(--secondary-text-color);
       z-index: 1;
