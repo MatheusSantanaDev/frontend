@@ -50,6 +50,8 @@ export class MoreInfoHistory extends LitElement {
 
   @state() private _error?: { code: string; message: string };
 
+  @state() private _timelineReady = false;
+
   private _metadata?: Record<string, StatisticsMetaData>;
 
   protected render() {
@@ -91,29 +93,17 @@ export class MoreInfoHistory extends LitElement {
                     ${this._error.message || this._error.code}
                   </ha-alert>`
                 : this._useColorTimeline
-                  ? html`<zhijia-light-timeline
-                      .hass=${this.hass}
-                      .entityId=${this.entityId}
-                    ></zhijia-light-timeline>`
-                  : this._statistics
-                    ? html`<statistics-chart
-                        .hass=${this.hass}
-                        .isLoadingData=${!this._statistics}
-                        .statisticsData=${this._statistics}
-                        .metadata=${this._metadata}
-                        .statTypes=${statTypes}
-                        .names=${this._statNames}
-                        hide-legend
-                        .clickForMoreInfo=${false}
-                      ></statistics-chart>`
-                    : html`<state-history-charts
-                        up-to-now
-                        .hass=${this.hass}
-                        .historyData=${this._stateHistory}
-                        .isLoadingData=${!this._stateHistory}
-                        .showNames=${false}
-                        .clickForMoreInfo=${false}
-                      ></state-history-charts>`
+                  ? html`<div ?hidden=${!this._timelineReady}>
+                        <zhijia-light-timeline
+                          .hass=${this.hass}
+                          .entityId=${this.entityId}
+                          @zhijia-timeline-ready=${this._onTimelineReady}
+                        ></zhijia-light-timeline>
+                      </div>
+                      <div ?hidden=${this._timelineReady}>
+                        ${this._nativeChart}
+                      </div>`
+                  : this._nativeChart
             }`
         : ""
     }`;
@@ -126,12 +116,39 @@ export class MoreInfoHistory extends LitElement {
     );
   }
 
+  private get _nativeChart() {
+    return this._statistics
+      ? html`<statistics-chart
+          .hass=${this.hass}
+          .isLoadingData=${!this._statistics}
+          .statisticsData=${this._statistics}
+          .metadata=${this._metadata}
+          .statTypes=${statTypes}
+          .names=${this._statNames}
+          hide-legend
+          .clickForMoreInfo=${false}
+        ></statistics-chart>`
+      : html`<state-history-charts
+          up-to-now
+          .hass=${this.hass}
+          .historyData=${this._stateHistory}
+          .isLoadingData=${!this._stateHistory}
+          .showNames=${false}
+          .clickForMoreInfo=${false}
+        ></state-history-charts>`;
+  }
+
+  private _onTimelineReady() {
+    this._timelineReady = true;
+  }
+
   protected willUpdate(changedProps: PropertyValues<this>): void {
     super.willUpdate(changedProps);
 
     if (changedProps.has("entityId")) {
       this._stateHistory = undefined;
       this._statistics = undefined;
+      this._timelineReady = false;
 
       if (!this.entityId) {
         return;
