@@ -5,6 +5,7 @@ import type {
   HassEntityAttributeBase,
   MessageBase,
 } from "home-assistant-js-websocket";
+import { lightColorFromAttributes } from "../common/color/light-color";
 import { computeDomain } from "../common/entity/compute_domain";
 import { computeStateDisplayFromEntityAttributes } from "../common/entity/compute_state_display";
 import { computeStateNameFromEntityAttributes } from "../common/entity/compute_state_name";
@@ -22,6 +23,9 @@ const NEED_ATTRIBUTE_DOMAINS = [
   "water_heater",
   "person",
   "device_tracker",
+  // Lights report their color (and brightness) as attributes; the timeline is
+  // painted with them, so the attributes have to be part of the response.
+  "light",
 ];
 const LINE_ATTRIBUTES_TO_KEEP = [
   "temperature",
@@ -60,6 +64,8 @@ export interface TimelineState {
   state_localize: string;
   state: string;
   last_changed: number;
+  /** Color of a light while it was in this state, when one is reported. */
+  color?: string;
 }
 
 export interface TimelineEntity {
@@ -99,17 +105,25 @@ export const entityIdHistoryNeedsAttributes = (
   !hass.states[entityId] ||
   NEED_ATTRIBUTE_DOMAINS.includes(computeDomain(entityId));
 
+// Color changes don't change the state, so a light's history only carries them
+// when the query asks for every update (no `significant_changes_only`, no
+// `minimal_response`) instead of only state transitions.
+const entityIdsNeedLightColor = (entityIds: string[]) =>
+  entityIds.some((entityId) => computeDomain(entityId) === "light");
+
 export const fetchDateWS = (
   hass: HomeAssistant,
   startTime: Date,
   endTime: Date,
   entityIds: string[]
 ) => {
+  const withLightColor = entityIdsNeedLightColor(entityIds);
   const params = {
     type: "history/history_during_period",
     start_time: startTime.toISOString(),
     end_time: endTime.toISOString(),
-    minimal_response: true,
+    minimal_response: !withLightColor,
+    significant_changes_only: !withLightColor,
     no_attributes: !entityIds.some((entityId) =>
       entityIdHistoryNeedsAttributes(hass, entityId)
     ),
@@ -126,17 +140,20 @@ export const subscribeHistory = (
   startTime: Date,
   endTime: Date,
   entityIds: string[]
-): Promise<() => Promise<void>> =>
-  subscribeHistoryStream(hass, callbackFunction, () => ({
+): Promise<() => Promise<void>> => {
+  const withLightColor = entityIdsNeedLightColor(entityIds);
+  return subscribeHistoryStream(hass, callbackFunction, () => ({
     type: "history/stream",
     entity_ids: entityIds,
     start_time: startTime.toISOString(),
     end_time: endTime.toISOString(),
-    minimal_response: true,
+    minimal_response: !withLightColor,
+    significant_changes_only: !withLightColor,
     no_attributes: !entityIds.some((entityId) =>
       entityIdHistoryNeedsAttributes(hass, entityId)
     ),
   }));
+};
 
 export class HistoryStream {
   hass: HomeAssistant;
@@ -242,10 +259,12 @@ export const subscribeHistoryStatesTimeWindow = (
   hoursToShow: number,
   entityIds: string[],
   noAttributes?: boolean,
-  minimalResponse = true,
-  significantChangesOnly = true
-): Promise<() => Promise<void>> =>
-  subscribeHistoryStream(
+  minimalResponse?: boolean,
+  significantChangesOnly?: boolean
+): Promise<() => Promise<void>> => {
+  // Light colors only show up in history when every update is requested.
+  const withLightColor = entityIdsNeedLightColor(entityIds);
+  return subscribeHistoryStream(
     hass,
     callbackFunction,
     () => ({
@@ -256,8 +275,8 @@ export const subscribeHistoryStatesTimeWindow = (
       start_time: new Date(
         new Date().getTime() - 60 * 60 * hoursToShow * 1000
       ).toISOString(),
-      minimal_response: minimalResponse,
-      significant_changes_only: significantChangesOnly,
+      minimal_response: minimalResponse ?? !withLightColor,
+      significant_changes_only: significantChangesOnly ?? !withLightColor,
       no_attributes:
         noAttributes ??
         !entityIds.some((entityId) =>
@@ -266,6 +285,7 @@ export const subscribeHistoryStatesTimeWindow = (
     }),
     hoursToShow
   );
+};
 
 /**
  * Subscribe to a history stream with transparent reconnect handling.
@@ -343,8 +363,18 @@ const processTimelineEntity = (
 ): TimelineEntity => {
   const data: TimelineState[] = [];
   const first: EntityHistoryState = states[0];
+  const isLight = computeDomain(entityId) === "light";
   for (const state of states) {
-    if (data.length > 0 && state.s === data[data.length - 1].state) {
+    // A light keeps its state while only its color changes, so the segment is
+    // split on the color too — otherwise the graph would miss those periods.
+    const color = isLight
+      ? (lightColorFromAttributes(state.a || first.a) ??
+        // A light that reports no color is a white one; matches the fallback
+        // the custom ZhiJia timeline uses.
+        (state.s === "on" ? "#ffffff" : undefined))
+      : undefined;
+    const previous = data[data.length - 1];
+    if (previous && state.s === previous.state && color === previous.color) {
       continue;
     }
 
@@ -370,6 +400,8 @@ const processTimelineEntity = (
       // lc (last_changed) may be omitted if its the same
       // as lu (last_updated).
       last_changed: (state.lc ? state.lc : state.lu) * 1000,
+      // Only lights have a color to report; other domains keep the plain shape.
+      ...(color ? { color } : {}),
     });
   }
 

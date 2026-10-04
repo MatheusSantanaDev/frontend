@@ -299,10 +299,21 @@ export class StateHistoryChartTimeline extends LitElement {
       let newLastChanged: Date;
       let prevState: string | null = null;
       let locState: string | null = null;
+      let prevColor: string | undefined;
       let prevLastChanged = startTime;
       const entityDisplay: string = this.showNames
         ? names[stateInfo.entity_id] || stateInfo.name || stateInfo.entity_id
         : "";
+
+      // Lights also change color without changing state; those periods carry
+      // their own color so the bar shows what the light actually looked like.
+      const segmentColor = (segmentState: string, color?: string) =>
+        color ??
+        computeTimelineColor(
+          segmentState,
+          computedStyles,
+          this.hass.states[stateInfo.entity_id]
+        );
 
       const dataRow: unknown[] = [];
       stateInfo.data.forEach((entityState) => {
@@ -319,15 +330,12 @@ export class StateHistoryChartTimeline extends LitElement {
         if (prevState === null) {
           prevState = newState;
           locState = entityState.state_localize;
+          prevColor = entityState.color;
           prevLastChanged = new Date(entityState.last_changed);
-        } else if (newState !== prevState) {
+        } else if (newState !== prevState || entityState.color !== prevColor) {
           newLastChanged = new Date(entityState.last_changed);
 
-          const color = computeTimelineColor(
-            prevState,
-            computedStyles,
-            this.hass.states[stateInfo.entity_id]
-          );
+          const color = segmentColor(prevState, prevColor);
           dataRow.push({
             value: [
               stateInfo.entity_id,
@@ -344,16 +352,13 @@ export class StateHistoryChartTimeline extends LitElement {
 
           prevState = newState;
           locState = entityState.state_localize;
+          prevColor = entityState.color;
           prevLastChanged = newLastChanged;
         }
       });
 
       if (prevState !== null) {
-        const color = computeTimelineColor(
-          prevState,
-          computedStyles,
-          this.hass.states[stateInfo.entity_id]
-        );
+        const color = segmentColor(prevState, prevColor);
         dataRow.push({
           value: [
             stateInfo.entity_id,

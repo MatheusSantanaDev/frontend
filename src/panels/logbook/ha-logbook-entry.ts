@@ -6,6 +6,9 @@ import { ifDefined } from "lit/directives/if-defined";
 import { styleMap } from "lit/directives/style-map";
 import { computeTimelineColor } from "../../components/chart/timeline-color";
 import { computeDomain } from "../../common/entity/compute_domain";
+import { hex2rgb } from "../../common/color/convert-color";
+import { lightColorFromAttributes } from "../../common/color/light-color";
+import { luminosity } from "../../common/color/rgb";
 import { formatTimeWithSeconds } from "../../common/datetime/format_time";
 import { useAmPm } from "../../common/datetime/use_am_pm";
 import { fireEvent } from "../../common/dom/fire_event";
@@ -383,24 +386,47 @@ class HaLogbookEntry extends LitElement {
       domain === "input_select" ||
       (domain === "sensor" && stateObj!.attributes.device_class === "enum");
     const useGraphColor = this.graphColor || !isEnumDomain;
+    // A light row carries the color the light had, so the node is painted with
+    // it rather than the generic active/inactive state color (amber/grey).
+    const lightColor =
+      domain === "light" && this.item.state === "on"
+        ? (lightColorFromAttributes(this.item.attributes) ??
+          // No color reported: a white light, same fallback as the timeline.
+          "#ffffff")
+        : undefined;
     const color =
-      layout === "inline" && !isUnavailable && this.item.state && useGraphColor
+      lightColor ??
+      (layout === "inline" && !isUnavailable && this.item.state && useGraphColor
         ? computeTimelineColor(
             this.item.state,
             (this._computedStyle ??= getComputedStyle(this)),
             stateObj
           )
-        : nodeColor(item.category, stateObj);
-    const style = color ? styleMap({ "--node-color": color }) : nothing;
+        : nodeColor(item.category, stateObj));
+    const style = color
+      ? styleMap({
+          "--node-color": color,
+          // Icon on a painted node has to stay readable on light colors.
+          ...(lightColor
+            ? {
+                "--node-contrast-color":
+                  luminosity(hex2rgb(lightColor)) > 0.5 ? "#000" : "#fff",
+              }
+            : {}),
+        })
+      : nothing;
     if (layout !== "timeline") {
       return html`<span
-        class="dot ${classMap({ unavailable: isUnavailable })}"
+        class="dot ${classMap({ unavailable: isUnavailable, painted: !!lightColor })}"
         style=${style}
       ></span>`;
     }
     const unavailable =
       item.glyph.type === "state" && item.glyph.stateObj.state === UNAVAILABLE;
-    return html`<div class="node-glyph" style=${style}>
+    return html`<div
+      class="node-glyph ${classMap({ painted: !!lightColor })}"
+      style=${style}
+    >
       ${renderLogbookGlyph(this.hass, this.item, item.glyph)}
       ${unavailable ? html`<span class="node-badge"></span>` : nothing}
     </div>`;
@@ -589,6 +615,17 @@ class HaLogbookEntry extends LitElement {
           position: relative;
         }
 
+        /* A painted node is filled with the color of the light, so the icon
+           switches to a contrasting color instead of the tinted treatment. */
+        .node-glyph.painted {
+          background-color: var(--node-color);
+          color: var(--node-contrast-color, var(--primary-text-color));
+        }
+
+        .node-glyph.painted::before {
+          display: none;
+        }
+
         .node-badge {
           position: absolute;
           top: -1px;
@@ -628,6 +665,12 @@ class HaLogbookEntry extends LitElement {
           background-color: transparent;
           border: 2px solid var(--disabled-color);
           box-sizing: border-box;
+        }
+
+        /* Painted with the color the light had. The outline keeps a white or
+           pastel light visible against the card background. */
+        .dot.painted {
+          box-shadow: 0 0 0 1px var(--divider-color);
         }
 
         /* Discreet divider between rows, aligned to the content so it does

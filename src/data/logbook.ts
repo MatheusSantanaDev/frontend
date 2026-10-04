@@ -30,7 +30,10 @@ export interface LogbookEntry {
   attributes?: {
     // Selected attributes the backend surfaces
     event_type?: string;
+    // Light color the entity had when the row was recorded, used to paint the
+    // row with the color of the light instead of a generic state color.
     rgb_color?: [number, number, number];
+    hs_color?: [number, number];
     color_temp?: number;
     color_temp_kelvin?: number;
   };
