@@ -38,15 +38,35 @@ export default <T extends Constructor<HassBaseEl>>(superClass: T) => {
         return;
       }
 
+      const { localize, locale, config, entities, devices, areas, floors } =
+        this.hass;
       const formatFunctions = await computeFormatFunctions(
-        this.hass.localize,
-        this.hass.locale,
-        this.hass.config,
-        this.hass.entities,
-        this.hass.devices,
-        this.hass.areas,
-        this.hass.floors
+        localize,
+        locale,
+        config,
+        entities,
+        devices,
+        areas,
+        floors
       );
+      // Translations or registries can change while the functions are being
+      // computed: applying the result then would bind the format functions to
+      // a stale localize, silently dropping keys the current one has (e.g.
+      // state.default.unavailable rendering as an empty logbook row). The
+      // change that invalidated this run already started a fresh one.
+      const h = this.hass;
+      if (
+        !h ||
+        h.localize !== localize ||
+        h.locale !== locale ||
+        h.config !== config ||
+        h.entities !== entities ||
+        h.devices !== devices ||
+        h.areas !== areas ||
+        h.floors !== floors
+      ) {
+        return;
+      }
       this._updateHass(formatFunctions);
     };
   }

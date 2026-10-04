@@ -176,9 +176,16 @@ export class HaLogbook extends LitElement {
     if (changedProps.size !== 1 || !changedProps.has("hass")) {
       return true;
     }
-    // We only respond to hass changes if the translations changed
+    // We only respond to hass changes if the translations or the state
+    // display functions changed: rows render through formatEntityState, and
+    // skipping that would leave them bound to a stale translation dict (an
+    // unavailable state then renders as an empty value).
     const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
-    return !oldHass || oldHass.localize !== this.hass.localize;
+    return (
+      !oldHass ||
+      oldHass.localize !== this.hass.localize ||
+      oldHass.formatEntityState !== this.hass.formatEntityState
+    );
   }
 
   protected willUpdate(changedProps: PropertyValues): void {

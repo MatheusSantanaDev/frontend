@@ -79,6 +79,11 @@ class HaLogbookRenderer extends LitElement {
       oldHass === undefined ||
       oldHass.locale !== this.hass.locale ||
       oldHass.localize !== this.hass.localize;
+    // Rows call formatEntityState to build their value text; re-render when
+    // those functions are replaced so they never render with a stale dict.
+    const formatFunctionsChanged =
+      oldHass === undefined ||
+      oldHass.formatEntityState !== this.hass.formatEntityState;
 
     return (
       changedProps.has("entries") ||
@@ -87,7 +92,8 @@ class HaLogbookRenderer extends LitElement {
       changedProps.has("userIdToName") ||
       changedProps.has("systemUserIds") ||
       changedProps.has("_firstVisibleIndex" as never) ||
-      languageChanged
+      languageChanged ||
+      formatFunctionsChanged
     );
   }
 
