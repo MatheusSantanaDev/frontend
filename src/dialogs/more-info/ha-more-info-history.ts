@@ -52,6 +52,10 @@ export class MoreInfoHistory extends LitElement {
 
   @state() private _timelineReady = false;
 
+  @state() private _timelineModuleLoaded = false;
+
+  private _timelineModuleImport?: Promise<unknown>;
+
   private _metadata?: Record<string, StatisticsMetaData>;
 
   protected render() {
@@ -112,8 +116,37 @@ export class MoreInfoHistory extends LitElement {
   private get _useColorTimeline(): boolean {
     return (
       computeDomain(this.entityId) === "light" &&
-      customElements.get("zhijia-light-timeline") !== undefined
+      (this._timelineModuleLoaded ||
+        customElements.get("zhijia-light-timeline") !== undefined)
     );
+  }
+
+  // The custom timeline is a runtime-only module; once it is registered a
+  // re-render is needed so the native chart swaps for it. Loaded via script
+  // tag because bundlers rewrite dynamic import() of runtime paths.
+  private _ensureTimelineModule() {
+    if (customElements.get("zhijia-light-timeline")) {
+      this._timelineModuleLoaded = true;
+      return;
+    }
+    if (this._timelineModuleImport) {
+      return;
+    }
+    this._timelineModuleImport = new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.type = "module";
+      script.src = "/local/zhijia-light-timeline.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("timeline module load failed"));
+      document.head.append(script);
+    })
+      .then(() => {
+        this._timelineModuleLoaded = true;
+      })
+      .catch(() => {
+        // Keep the native chart when the timeline module is unavailable.
+        this._timelineModuleImport = undefined;
+      });
   }
 
   private get _nativeChart() {
@@ -152,6 +185,10 @@ export class MoreInfoHistory extends LitElement {
 
       if (!this.entityId) {
         return;
+      }
+
+      if (computeDomain(this.entityId) === "light") {
+        this._ensureTimelineModule();
       }
 
       const params = {
