@@ -27,7 +27,13 @@ export interface LogbookEntry {
   source?: string; // The trigger source (English phrase, parsed for the cause)
   domain?: string;
   state?: string; // The state of the entity
-  attributes?: { event_type?: string }; // Selected attributes the backend surfaces
+  attributes?: {
+    // Selected attributes the backend surfaces
+    event_type?: string;
+    rgb_color?: [number, number, number];
+    color_temp?: number;
+    color_temp_kelvin?: number;
+  };
   // Context data
   context_id?: string;
   context_user_id?: string;
@@ -41,6 +47,30 @@ export interface LogbookEntry {
   context_source?: string; // The trigger source
   context_message?: string;
 }
+
+// Message core attaches to light rows where only the color changed.
+export const LOGBOOK_COLOR_CHANGED_MESSAGE = "color changed";
+
+export const formatLogbookColorChange = (
+  attributes: LogbookEntry["attributes"]
+): string => {
+  const rgb = attributes?.rgb_color;
+  if (rgb && rgb.length === 3) {
+    return `#${rgb
+      .map((component) =>
+        Math.max(0, Math.min(255, Math.round(component)))
+          .toString(16)
+          .padStart(2, "0")
+      )
+      .join("")}`;
+  }
+  const kelvin =
+    attributes?.color_temp_kelvin ??
+    (attributes?.color_temp
+      ? Math.round(1_000_000 / attributes.color_temp)
+      : undefined);
+  return kelvin ? `${kelvin} K` : "";
+};
 
 //
 // Localization mapping for all the triggers in core

@@ -742,7 +742,8 @@
           "spoke": "Spoke",
           "responded": "Responded",
           "ran": "Ran",
-          "command_sent": "Command sent"
+          "command_sent": "Command sent",
+          "color_changed": "changed color to {color}"
         }
       },
       "entity": {

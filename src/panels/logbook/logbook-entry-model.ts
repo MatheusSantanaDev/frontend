@@ -9,7 +9,9 @@ import { domainToName } from "../../data/integration";
 import type { LogbookEntry } from "../../data/logbook";
 import {
   createHistoricState,
+  formatLogbookColorChange,
   localizeStateMessage,
+  LOGBOOK_COLOR_CHANGED_MESSAGE,
   parseTriggerSource,
 } from "../../data/logbook";
 import type { TraceContexts } from "../../data/trace";
@@ -312,6 +314,14 @@ const computeLogbookValue = (
   stateObj: HassEntity | undefined
 ): LogbookValue | undefined => {
   if (item.entity_id && item.state) {
+    if (domain === "light" && item.message === LOGBOOK_COLOR_CHANGED_MESSAGE) {
+      return {
+        text: hass.localize("ui.components.logbook.messages.color_changed", {
+          color: formatLogbookColorChange(item.attributes),
+        }),
+        type: "state",
+      };
+    }
     return {
       text: stateObj
         ? localizeStateMessage(
