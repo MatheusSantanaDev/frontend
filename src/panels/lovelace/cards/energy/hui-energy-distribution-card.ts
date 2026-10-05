@@ -23,13 +23,17 @@ import "../../../../components/ha-svg-icon";
 import type { EnergyData } from "../../../../data/energy";
 import {
   computeConsumptionData,
+  computeEnergyDeviceLabels,
   energySourcesByType,
   formatConsumptionShort,
   getEnergyDataCollection,
   getSummedData,
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
-import { calculateStatisticsSumGrowth } from "../../../../data/recorder";
+import {
+  calculateStatisticsSumGrowth,
+  getStatisticLabel,
+} from "../../../../data/recorder";
 import { SubscribeMixin } from "../../../../mixins/subscribe-mixin";
 import type { HomeAssistant } from "../../../../types";
 import { hasConfigChanged } from "../../common/has-changed";
@@ -101,7 +105,8 @@ class HuiEnergyDistrubutionCard
   }
 
   public getCardSize(): Promise<number> | number {
-    return 3;
+    const devices = this._data?.prefs.device_consumption.length ?? 0;
+    return 3 + (devices ? 1 + Math.ceil(devices * 0.6) : 0);
   }
 
   protected shouldUpdate(changedProps: PropertyValues): boolean {
@@ -364,6 +369,49 @@ class HuiEnergyDistrubutionCard
     const targetEnergyUnit = formatConsumptionShort(this.hass, maxEnergy, "kWh")
       .split(" ")
       .pop();
+
+    // Devices configured under "Devices" in the energy preferences. Each one
+    // becomes a branch of the tree below the home, with its own consumption
+    // for the selected period.
+    const deviceLabels = computeEnergyDeviceLabels(
+      this.hass,
+      prefs.device_consumption,
+      this._data.statsMetadata
+    );
+
+    const deviceRows = prefs.device_consumption
+      .map((device) => {
+        const statId = device.stat_consumption;
+        return {
+          label:
+            deviceLabels[statId] ||
+            getStatisticLabel(
+              this.hass,
+              statId,
+              this._data!.statsMetadata[statId]
+            ),
+          value: calculateStatisticsSumGrowth(this._data!.stats, [statId]) ?? 0,
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    const trackedTotal = deviceRows.reduce((sum, row) => sum + row.value, 0);
+    const untrackedValue = totalHomeConsumption - trackedTotal;
+    // Only call out what is left over when it is a meaningful share of the
+    // home total; devices reporting slightly more than the grid (rounding of
+    // statistics baselines) must not produce a negative "untracked" branch.
+    const hasUntracked =
+      totalHomeConsumption > 0 &&
+      untrackedValue > Math.max(totalHomeConsumption * 0.005, 0.01);
+
+    // Bar length as a share of the home total, with a visible stub so tiny
+    // consumers are still perceivable.
+    const barWidth = (value: number): string => {
+      if (totalHomeConsumption <= 0 || value <= 0) {
+        return "0%";
+      }
+      return `${Math.min(100, Math.max(2, (value / totalHomeConsumption) * 100)).toFixed(2)}%`;
+    };
 
     return html`
       <ha-card .header=${this._config.title}>
@@ -963,6 +1011,88 @@ class HuiEnergyDistrubutionCard
           </div>
         </div>
         ${
+          deviceRows.length
+            ? html`<div class="devices">
+                <span class="devices-title"
+                  >${this.hass.localize(
+                    "ui.panel.config.energy.device_consumption.devices"
+                  )}</span
+                >
+                <div class="device root">
+                  <div class="device-head">
+                    <span class="device-name"
+                      ><ha-svg-icon .path=${mdiHome}></ha-svg-icon
+                      >${this.hass.config.location_name}</span
+                    >
+                    <span class="device-value"
+                      >${formatConsumptionShort(
+                        this.hass,
+                        totalHomeConsumption,
+                        "kWh",
+                        targetEnergyUnit
+                      )}</span
+                    >
+                  </div>
+                  <div class="bar">
+                    <span class="fill" style="width:100%"></span>
+                  </div>
+                </div>
+                <div class="branches">
+                  ${deviceRows.map(
+                    (row) => html`
+                      <div class="device">
+                        <div class="device-head">
+                          <span class="device-name">${row.label}</span>
+                          <span class="device-value"
+                            >${formatConsumptionShort(
+                              this.hass,
+                              row.value,
+                              "kWh",
+                              targetEnergyUnit
+                            )}</span
+                          >
+                        </div>
+                        <div class="bar">
+                          <span
+                            class="fill"
+                            style="width:${barWidth(row.value)}"
+                          ></span>
+                        </div>
+                      </div>
+                    `
+                  )}
+                  ${
+                    hasUntracked
+                      ? html`<div class="device untracked">
+                          <div class="device-head">
+                            <span class="device-name"
+                              >${this.hass.localize(
+                                "ui.panel.lovelace.cards.energy.energy_devices_graph.untracked_consumption"
+                              )}</span
+                            >
+                            <span class="device-value"
+                              >${formatConsumptionShort(
+                                this.hass,
+                                untrackedValue,
+                                "kWh",
+                                targetEnergyUnit
+                              )}</span
+                            >
+                          </div>
+                          <div class="bar">
+                            <span
+                              class="fill"
+                              style="width:${barWidth(untrackedValue)}"
+                            ></span>
+                          </div>
+                        </div>`
+                      : ""
+                  }
+                </div>
+              </div>`
+            : ""
+        }
+        ${
           this._config.link_dashboard && this.hass.panels.energy
             ? html`
                 <div class="card-actions">
@@ -1244,6 +1374,91 @@ class HuiEnergyDistrubutionCard
           stroke-dasharray: 238.76104;
         }
       }
+    }
+    .devices {
+      margin: 12px 16px 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--divider-color);
+    }
+    .devices-title {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--secondary-text-color);
+      font-size: var(--ha-font-size-s);
+    }
+    .device {
+      margin-bottom: 8px;
+    }
+    .branches {
+      margin-left: 5px;
+      padding-left: 10px;
+      border-left: 1px solid var(--divider-color);
+    }
+    .branches .device {
+      position: relative;
+    }
+    .branches .device:last-child {
+      margin-bottom: 0;
+    }
+    .branches .device::before {
+      content: "";
+      position: absolute;
+      top: 9px;
+      left: -10px;
+      width: 8px;
+      height: 1px;
+      background: var(--divider-color);
+    }
+    .device-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: var(--ha-font-size-s);
+      line-height: 1.4;
+    }
+    .device-name {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--primary-text-color);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .device-name ha-svg-icon {
+      --mdc-icon-size: 14px;
+      flex: none;
+      color: var(--primary-color);
+    }
+    .device-value {
+      flex: none;
+      color: var(--secondary-text-color);
+      font-variant-numeric: tabular-nums;
+    }
+    .bar {
+      height: 4px;
+      margin-top: 3px;
+      overflow: hidden;
+      border-radius: var(--ha-border-radius-s, 4px);
+      background: var(--divider-color);
+    }
+    .fill {
+      display: block;
+      height: 100%;
+      background: var(--primary-color);
+      border-radius: inherit;
+      transition: width 0.4s ease-in;
+    }
+    .branches .fill {
+      background: var(--energy-grid-consumption-color);
+    }
+    .device.untracked .fill {
+      background: var(--secondary-text-color);
+    }
+    .device.untracked .device-name {
+      color: var(--secondary-text-color);
     }
     .card-actions a {
       text-decoration: none;
