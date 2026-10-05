@@ -1,15 +1,32 @@
 import {
+  mdiAirConditioner,
   mdiArrowDown,
   mdiArrowLeft,
   mdiArrowRight,
   mdiArrowUp,
   mdiBatteryHigh,
+  mdiCoffee,
+  mdiFan,
   mdiFire,
+  mdiFridge,
+  mdiHelp,
   mdiHome,
   mdiLeaf,
+  mdiLightbulbOn,
+  mdiMicrowave,
+  mdiMonitor,
+  mdiPowerPlug,
+  mdiPrinter,
+  mdiRobotVacuum,
+  mdiShower,
   mdiSolarPower,
+  mdiSpeaker,
+  mdiStove,
+  mdiTelevision,
   mdiTransmissionTower,
+  mdiWashingMachine,
   mdiWater,
+  mdiWaterPump,
 } from "@mdi/js";
 import type { UnsubscribeFunc } from "home-assistant-js-websocket";
 import type { PropertyValues } from "lit";
@@ -23,13 +40,17 @@ import "../../../../components/ha-svg-icon";
 import type { EnergyData } from "../../../../data/energy";
 import {
   computeConsumptionData,
+  computeEnergyDeviceLabels,
   energySourcesByType,
   formatConsumptionShort,
   getEnergyDataCollection,
   getSummedData,
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
-import { calculateStatisticsSumGrowth } from "../../../../data/recorder";
+import {
+  calculateStatisticsSumGrowth,
+  getStatisticLabel,
+} from "../../../../data/recorder";
 import { SubscribeMixin } from "../../../../mixins/subscribe-mixin";
 import type { HomeAssistant } from "../../../../types";
 import { hasConfigChanged } from "../../common/has-changed";
@@ -41,6 +62,46 @@ const CIRCLE_CIRCUMFERENCE = 238.76104;
 
 const periodIncludesNow = (data: EnergyData): boolean =>
   !data.end || data.end.getTime() >= Date.now();
+
+const normalizeForIconMatch = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+/**
+ * Icon of the bubble that represents a device. Matched on the displayed name
+ * and the statistic id, so both a renamed entity and its entity id hit the
+ * same rule; unknown devices fall back to a generic plug.
+ */
+const DEVICE_ICON_RULES: [RegExp, string][] = [
+  [/(luz|lampad|light|lumin|ilumin|abajur)/, mdiLightbulbOn],
+  [/(fogao|cooktop|forno|oven|inducao)/, mdiStove],
+  [/(geladeira|refrig|freezer|fridge)/, mdiFridge],
+  [/(lavad|washer|roupa)/, mdiWashingMachine],
+  [/(^|[^a-z])tv([^a-z]|$)|televis|samsung/, mdiTelevision],
+  [/(ar ?cond|aircond|split|inverter)/, mdiAirConditioner],
+  [/(chuveiro|shower)/, mdiShower],
+  [/(bomba|pump)/, mdiWaterPump],
+  [/(ventil|(^|[^a-z])fan)/, mdiFan],
+  [/(robo|aspir)/, mdiRobotVacuum],
+  [/(microondas|microwave)/, mdiMicrowave],
+  [/(cafe|coffee)/, mdiCoffee],
+  [/(impressor|printer)/, mdiPrinter],
+  [/(monitor|computador|desktop|notebook)/, mdiMonitor],
+  [/(speaker|caixa de som|audio)/, mdiSpeaker],
+  [/(tomada|plug)/, mdiPowerPlug],
+];
+
+const deviceIconPath = (label: string, statisticId: string): string => {
+  const haystack = `${normalizeForIconMatch(label)} ${normalizeForIconMatch(
+    statisticId
+  )}`;
+  return (
+    DEVICE_ICON_RULES.find(([pattern]) => pattern.test(haystack))?.[1] ??
+    mdiPowerPlug
+  );
+};
 
 @customElement("hui-energy-distribution-card")
 class HuiEnergyDistrubutionCard
@@ -101,7 +162,8 @@ class HuiEnergyDistrubutionCard
   }
 
   public getCardSize(): Promise<number> | number {
-    return 3;
+    const devices = this._data?.prefs.device_consumption.length ?? 0;
+    return 3 + (devices ? 1 + devices : 0);
   }
 
   protected shouldUpdate(changedProps: PropertyValues): boolean {
@@ -365,6 +427,69 @@ class HuiEnergyDistrubutionCard
       .split(" ")
       .pop();
 
+    // Devices configured under "Devices" in the energy preferences. Each one
+    // becomes a bubble branching out of the home, with its own consumption
+    // for the selected period.
+    const deviceLabels = computeEnergyDeviceLabels(
+      this.hass,
+      prefs.device_consumption,
+      this._data.statsMetadata
+    );
+
+    const deviceRows = prefs.device_consumption
+      .map((device) => {
+        const statId = device.stat_consumption;
+        return {
+          statId,
+          label:
+            deviceLabels[statId] ||
+            getStatisticLabel(
+              this.hass,
+              statId,
+              this._data!.statsMetadata[statId]
+            ),
+          value: calculateStatisticsSumGrowth(this._data!.stats, [statId]) ?? 0,
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    const trackedTotal = deviceRows.reduce((sum, row) => sum + row.value, 0);
+    const untrackedValue = totalHomeConsumption - trackedTotal;
+    // Only call out what is left over when it is a meaningful share of the
+    // home total; devices reporting slightly more than the grid (rounding of
+    // statistics baselines) must not produce a negative "untracked" branch.
+    const hasUntracked =
+      totalHomeConsumption > 0 &&
+      untrackedValue > Math.max(totalHomeConsumption * 0.005, 0.01);
+
+    const bubbles = [
+      ...deviceRows.map((row) => ({
+        ...row,
+        untracked: false,
+        icon: deviceIconPath(row.label, row.statId),
+      })),
+      ...(hasUntracked
+        ? [
+            {
+              statId: "",
+              label: this.hass.localize(
+                "ui.panel.lovelace.cards.energy.energy_devices_graph.untracked_consumption"
+              ),
+              value: untrackedValue,
+              untracked: true,
+              icon: mdiHelp,
+            },
+          ]
+        : []),
+    ];
+
+    // Flow dot on the trunk, timed like the other lines of the diagram: the
+    // more of the total it carries, the faster it runs.
+    const deviceFlowDuration =
+      totalLines > 0
+        ? Math.max(1, 6 - (totalHomeConsumption / totalLines) * 5)
+        : 4;
+
     return html`
       <ha-card .header=${this._config.title}>
         <div class="card-content">
@@ -549,6 +674,7 @@ class HuiEnergyDistrubutionCard
                 : html`<div class="grid-spacer"></div>`
             }
             <div class="circle-container home">
+              <span class="label">${this.hass.config.location_name}</span>
               <div
                 class="circle ${classMap({
                   border:
@@ -650,13 +776,6 @@ class HuiEnergyDistrubutionCard
                     : ""
                 }
               </div>
-              ${
-                hasGas && hasWater
-                  ? ""
-                  : html`<span class="label"
-                      >${this.hass.config.location_name}</span
-                    >`
-              }
             </div>
           </div>
           ${
@@ -963,6 +1082,49 @@ class HuiEnergyDistrubutionCard
           </div>
         </div>
         ${
+          deviceRows.length
+            ? html`<div class="devices">
+                <div
+                  class="tree"
+                  style=${`--flow-duration:${deviceFlowDuration}s;--flow-step:${(
+                    deviceFlowDuration / Math.max(8, bubbles.length + 1)
+                  ).toFixed(3)}s`}
+                >
+                  ${bubbles.map(
+                    (bubble, index) => html`
+                      <div class="node" style=${`--flow-index:${index}`}>
+                        <span class="node-label" title=${bubble.label}
+                          >${bubble.label}</span
+                        >
+                        <div
+                          class="bubble ${classMap({
+                            untracked: bubble.untracked,
+                          })}"
+                        >
+                          <ha-svg-icon .path=${bubble.icon}></ha-svg-icon>
+                          <span class="bubble-value"
+                            >${formatConsumptionShort(
+                              this.hass,
+                              bubble.value,
+                              "kWh",
+                              targetEnergyUnit
+                            )}</span
+                          >
+                        </div>
+                        ${
+                          this._animate && totalHomeConsumption > 0
+                            ? html`<span class="flow"></span
+                                ><span class="flow-branch"></span>`
+                            : ""
+                        }
+                      </div>
+                    `
+                  )}
+                </div>
+              </div>`
+            : ""
+        }
+        ${
           this._config.link_dashboard && this.hass.panels.energy
             ? html`
                 <div class="card-actions">
@@ -1095,6 +1257,21 @@ class HuiEnergyDistrubutionCard
       text-overflow: ellipsis;
       max-width: 80px;
       white-space: nowrap;
+    }
+    /* The location name floats right above the home circle. The trunk leaves
+       the circle at its bottom edge and the diagram line crosses its middle,
+       so neither under nor inside leaves a clean spot. Keeping it absolute
+       means the circle (and every line that meets it) stays put. */
+    .circle-container.home {
+      position: relative;
+    }
+    .circle-container.home .label {
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 0;
+      right: 0;
+      height: auto;
+      text-align: center;
     }
     line,
     path {
@@ -1243,6 +1420,209 @@ class HuiEnergyDistrubutionCard
           stroke-dashoffset: 238.76104;
           stroke-dasharray: 238.76104;
         }
+      }
+    }
+    /* The device list hangs in a vertical column out of the home circle
+       above. The list shares the same 500px band as the circle rows and the
+       home sits at its right edge (center 40px in), so a trunk at right: 40px
+       leaves the circle itself. --trunk-start bridges the card padding
+       (16px) plus the 20px the row keeps under the circle (grid label or
+       spacer), landing the trunk right on the circle's bottom edge. */
+    .devices {
+      --trunk-start: calc(-1 * (var(--ha-space-4, 16px) + 20px));
+      --device-bubble-size: 64px;
+      padding: 0 var(--ha-space-4, 16px) var(--ha-space-4, 16px);
+    }
+    .tree {
+      position: relative;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .node {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 4px 56px 4px 0;
+      /* Fraction of its trip the trunk dot takes to reach the branch, so
+         the branch dot is released exactly when it passes the junction. */
+      --flow-split: 0.5;
+    }
+    /* One trunk segment per item, so the line ends at the last branch. */
+    .node::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 40px;
+      bottom: 0;
+      width: 1px;
+      background: var(--primary-text-color);
+    }
+    .node:first-child::before {
+      top: var(--trunk-start);
+    }
+    .node:last-child::before {
+      bottom: 50%;
+    }
+    /* First dot also travels the gap up to the circle (36px extra on top of
+       the row), and the last one stops at its own branch: both shift when
+       the junction is reached. Keep in sync with the keyframes below. */
+    .node:first-child {
+      --flow-split: 0.667;
+    }
+    .node:last-child,
+    .node:first-child:last-child {
+      --flow-split: 1;
+    }
+    /* Branch from the trunk into the bubble. */
+    .node::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 40px;
+      width: 16px;
+      height: 1px;
+      background: var(--primary-text-color);
+    }
+    /* Same pattern as the circles above: icon on top, consumption below,
+       both inside the bubble, with the device name right beside it. */
+    .bubble {
+      box-sizing: border-box;
+      flex: none;
+      width: var(--device-bubble-size, 64px);
+      height: var(--device-bubble-size, 64px);
+      border: 2px solid var(--energy-grid-consumption-color);
+      border-radius: var(--ha-border-radius-circle);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--primary-text-color);
+      font-size: var(--ha-font-size-s);
+      line-height: 12px;
+    }
+    .bubble.untracked {
+      border-color: var(--secondary-text-color);
+      border-style: dashed;
+    }
+    .bubble ha-svg-icon {
+      --mdc-icon-size: 18px;
+      color: var(--energy-grid-consumption-color);
+    }
+    .bubble.untracked ha-svg-icon {
+      color: var(--secondary-text-color);
+    }
+    .bubble-value {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .node-label {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--primary-text-color);
+      font-size: var(--ha-font-size-s);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* Energy flowing down the trunk, from the home to each device. Every
+       row runs its own dot, staggered so the stream walks down the tree. */
+    .flow {
+      position: absolute;
+      top: 0;
+      right: 37.5px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--energy-grid-consumption-color);
+      transform: translateY(-50%);
+      animation: device-flow var(--flow-duration, 4s) linear infinite;
+      animation-delay: calc(var(--flow-index, 0) * var(--flow-step, 0.5s));
+    }
+    /* Companion dot: released at the junction, it slides along the branch
+       and enters the bubble of its device. */
+    .flow-branch {
+      position: absolute;
+      top: 50%;
+      right: 37.5px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--energy-grid-consumption-color);
+      transform: translateY(-50%);
+      opacity: 0;
+      animation: device-branch var(--flow-duration, 4s) linear infinite;
+      animation-delay: calc(
+        var(--flow-index, 0) * var(--flow-step, 0.5s) + var(--flow-split, 0.5) *
+          var(--flow-duration, 4s)
+      );
+    }
+    .node:first-child .flow {
+      animation-name: device-flow-start;
+    }
+    .node:last-child .flow {
+      animation-name: device-flow-end;
+    }
+    .node:first-child:last-child .flow {
+      animation-name: device-flow-start-end;
+    }
+    @keyframes device-flow {
+      from {
+        top: 0;
+      }
+      to {
+        top: 100%;
+      }
+    }
+    @keyframes device-flow-start {
+      from {
+        top: var(--trunk-start);
+      }
+      /* Reaches the branch at --flow-split (0.667 of the trip), where the
+         branch dot is released. */
+      66.7% {
+        top: 50%;
+      }
+      to {
+        top: 100%;
+      }
+    }
+    @keyframes device-branch {
+      0% {
+        right: 37.5px;
+        opacity: 1;
+      }
+      22% {
+        /* Stops on the doorstep of the bubble (its edge sits at 56px, the
+           dot is 6px wide), never crossing into it. */
+        right: 50px;
+        opacity: 1;
+      }
+      28% {
+        right: 50px;
+        opacity: 0;
+      }
+      100% {
+        right: 37.5px;
+        opacity: 0;
+      }
+    }
+    @keyframes device-flow-end {
+      from {
+        top: 0;
+      }
+      to {
+        top: 50%;
+      }
+    }
+    @keyframes device-flow-start-end {
+      from {
+        top: var(--trunk-start);
+      }
+      to {
+        top: 50%;
       }
     }
     .card-actions a {
