@@ -674,6 +674,7 @@ class HuiEnergyDistrubutionCard
                 : html`<div class="grid-spacer"></div>`
             }
             <div class="circle-container home">
+              <span class="label">${this.hass.config.location_name}</span>
               <div
                 class="circle ${classMap({
                   border:
@@ -775,15 +776,6 @@ class HuiEnergyDistrubutionCard
                     : ""
                 }
               </div>
-              ${
-                // With the device list below, the trunk leaves the home circle
-                // itself, so the location label would sit in its way.
-                (hasGas && hasWater) || deviceRows.length > 0
-                  ? ""
-                  : html`<span class="label"
-                      >${this.hass.config.location_name}</span
-                    >`
-              }
             </div>
           </div>
           ${
@@ -1094,11 +1086,13 @@ class HuiEnergyDistrubutionCard
             ? html`<div class="devices">
                 <div
                   class="tree"
-                  style=${`--flow-duration:${deviceFlowDuration}s`}
+                  style=${`--flow-duration:${deviceFlowDuration}s;--flow-step:${(
+                    deviceFlowDuration / Math.max(8, bubbles.length + 1)
+                  ).toFixed(3)}s`}
                 >
                   ${bubbles.map(
-                    (bubble) => html`
-                      <div class="node">
+                    (bubble, index) => html`
+                      <div class="node" style=${`--flow-index:${index}`}>
                         <span class="node-label" title=${bubble.label}
                           >${bubble.label}</span
                         >
@@ -1119,7 +1113,8 @@ class HuiEnergyDistrubutionCard
                         </div>
                         ${
                           this._animate && totalHomeConsumption > 0
-                            ? html`<span class="flow"></span>`
+                            ? html`<span class="flow"></span
+                                ><span class="flow-branch"></span>`
                             : ""
                         }
                       </div>
@@ -1262,6 +1257,21 @@ class HuiEnergyDistrubutionCard
       text-overflow: ellipsis;
       max-width: 80px;
       white-space: nowrap;
+    }
+    /* The location name floats right above the home circle. The trunk leaves
+       the circle at its bottom edge and the diagram line crosses its middle,
+       so neither under nor inside leaves a clean spot. Keeping it absolute
+       means the circle (and every line that meets it) stays put. */
+    .circle-container.home {
+      position: relative;
+    }
+    .circle-container.home .label {
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 0;
+      right: 0;
+      height: auto;
+      text-align: center;
     }
     line,
     path {
@@ -1416,7 +1426,8 @@ class HuiEnergyDistrubutionCard
        above. The list shares the same 500px band as the circle rows and the
        home sits at its right edge (center 40px in), so a trunk at right: 40px
        leaves the circle itself. --trunk-start bridges the card padding
-       (16px) plus the now empty label band (20px) under the circle. */
+       (16px) plus the 20px the row keeps under the circle (grid label or
+       spacer), landing the trunk right on the circle's bottom edge. */
     .devices {
       --trunk-start: calc(-1 * (var(--ha-space-4, 16px) + 20px));
       --device-bubble-size: 64px;
@@ -1434,6 +1445,9 @@ class HuiEnergyDistrubutionCard
       justify-content: flex-end;
       gap: 12px;
       padding: 4px 56px 4px 0;
+      /* Fraction of its trip the trunk dot takes to reach the branch, so
+         the branch dot is released exactly when it passes the junction. */
+      --flow-split: 0.5;
     }
     /* One trunk segment per item, so the line ends at the last branch. */
     .node::before {
@@ -1450,6 +1464,16 @@ class HuiEnergyDistrubutionCard
     }
     .node:last-child::before {
       bottom: 50%;
+    }
+    /* First dot also travels the gap up to the circle (36px extra on top of
+       the row), and the last one stops at its own branch: both shift when
+       the junction is reached. Keep in sync with the keyframes below. */
+    .node:first-child {
+      --flow-split: 0.667;
+    }
+    .node:last-child,
+    .node:first-child:last-child {
+      --flow-split: 1;
     }
     /* Branch from the trunk into the bubble. */
     .node::after {
@@ -1503,7 +1527,8 @@ class HuiEnergyDistrubutionCard
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    /* Energy flowing down the trunk, from the home to each device. */
+    /* Energy flowing down the trunk, from the home to each device. Every
+       row runs its own dot, staggered so the stream walks down the tree. */
     .flow {
       position: absolute;
       top: 0;
@@ -1514,6 +1539,25 @@ class HuiEnergyDistrubutionCard
       background: var(--energy-grid-consumption-color);
       transform: translateY(-50%);
       animation: device-flow var(--flow-duration, 4s) linear infinite;
+      animation-delay: calc(var(--flow-index, 0) * var(--flow-step, 0.5s));
+    }
+    /* Companion dot: released at the junction, it slides along the branch
+       and enters the bubble of its device. */
+    .flow-branch {
+      position: absolute;
+      top: 50%;
+      right: 37.5px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--energy-grid-consumption-color);
+      transform: translateY(-50%);
+      opacity: 0;
+      animation: device-branch var(--flow-duration, 4s) linear infinite;
+      animation-delay: calc(
+        var(--flow-index, 0) * var(--flow-step, 0.5s) + var(--flow-split, 0.5) *
+          var(--flow-duration, 4s)
+      );
     }
     .node:first-child .flow {
       animation-name: device-flow-start;
@@ -1536,8 +1580,33 @@ class HuiEnergyDistrubutionCard
       from {
         top: var(--trunk-start);
       }
+      /* Reaches the branch at --flow-split (0.667 of the trip), where the
+         branch dot is released. */
+      66.7% {
+        top: 50%;
+      }
       to {
         top: 100%;
+      }
+    }
+    @keyframes device-branch {
+      0% {
+        right: 37.5px;
+        opacity: 1;
+      }
+      22% {
+        /* Stops on the doorstep of the bubble (its edge sits at 56px, the
+           dot is 6px wide), never crossing into it. */
+        right: 50px;
+        opacity: 1;
+      }
+      28% {
+        right: 50px;
+        opacity: 0;
+      }
+      100% {
+        right: 37.5px;
+        opacity: 0;
       }
     }
     @keyframes device-flow-end {
