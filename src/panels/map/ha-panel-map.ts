@@ -4,6 +4,7 @@ import { css, html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators";
 import { computeStateDomain } from "../../common/entity/compute_state_domain";
 import { getEntityLocation } from "../../common/entity/get_entity_location";
+import type { HaMapEntity } from "../../components/map/ha-map";
 import { navigate } from "../../common/navigate";
 import "../../components/ha-icon-button";
 import "../../components/ha-top-app-bar-fixed";
@@ -17,7 +18,7 @@ class HaPanelMap extends LitElement {
 
   @property({ type: Boolean }) public narrow = false;
 
-  private _entities: string[] = [];
+  private _entities: (string | HaMapEntity)[] = [];
 
   protected render() {
     return html`
@@ -53,8 +54,7 @@ class HaPanelMap extends LitElement {
 
   private _getStates(oldHass?: HomeAssistant) {
     let changed = false;
-    const personSources = new Set<string>();
-    const locationEntities: string[] = [];
+    const locationEntities: (string | HaMapEntity)[] = [];
     Object.values(this.hass!.states).forEach((entity) => {
       if (entity.state === "home") {
         return;
@@ -62,9 +62,19 @@ class HaPanelMap extends LitElement {
       if (!getEntityLocation(entity, this.hass!.states)) {
         return;
       }
-      locationEntities.push(entity.entity_id);
-      if (computeStateDomain(entity) === "person" && entity.attributes.source) {
-        personSources.add(entity.attributes.source);
+      // Persons are not shown: devices report their own locations and
+      // we render them directly with their device icon.
+      if (computeStateDomain(entity) === "person") {
+        return;
+      }
+      if (entity.attributes.source_type !== undefined) {
+        locationEntities.push({
+          entity_id: entity.entity_id,
+          color: "",
+          label_mode: "icon",
+        });
+      } else {
+        locationEntities.push(entity.entity_id);
       }
       if (oldHass?.states[entity.entity_id] !== entity) {
         changed = true;
@@ -72,9 +82,7 @@ class HaPanelMap extends LitElement {
     });
 
     if (changed) {
-      this._entities = locationEntities.filter(
-        (entity) => !personSources.has(entity)
-      );
+      this._entities = locationEntities;
     }
   }
 

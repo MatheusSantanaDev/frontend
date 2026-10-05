@@ -88,21 +88,21 @@ class HuiMapCard extends LitElement implements LovelaceCard {
 
   private _getAllEntities(): string[] {
     const hass = this.hass!;
-    const personSources = new Set<string>();
     const locationEntities: string[] = [];
     Object.values(hass.states).forEach((entity) => {
       if (!getEntityLocation(entity, hass.states)) {
         return;
       }
-      locationEntities.push(entity.entity_id);
-      if (computeStateDomain(entity) === "person" && entity.attributes.source) {
-        personSources.add(entity.attributes.source);
+      // Persons are hidden on the map: devices report their own locations
+      // and are rendered with their own icons instead.
+      if (computeStateDomain(entity) === "person") {
+        return;
       }
+      locationEntities.push(entity.entity_id);
     });
 
     return locationEntities.filter(
-      (entityId) =>
-        !hass.entities?.[entityId]?.hidden && !personSources.has(entityId)
+      (entityId) => !hass.entities?.[entityId]?.hidden
     );
   }
 
@@ -487,7 +487,7 @@ class HuiMapCard extends LitElement implements LovelaceCard {
         color: entityConf.color
           ? resolveThemeColor(entityConf.color)
           : this._getColor(entityConf.entity),
-        label_mode: entityConf.label_mode,
+        label_mode: entityConf.label_mode ?? "icon",
         attribute: entityConf.attribute,
         unit: entityConf.unit,
         focus: entityConf.focus,
@@ -495,6 +495,7 @@ class HuiMapCard extends LitElement implements LovelaceCard {
       })),
       ...this._getSourceEntities(this.hass?.states).map((entity) => ({
         ...entity,
+        label_mode: entity.label_mode ?? "icon",
         color: this._getColor(entity.entity_id),
       })),
     ];
