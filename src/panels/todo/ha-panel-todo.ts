@@ -42,6 +42,8 @@ import "../../components/ha-list-item";
 import "../../components/ha-sortable";
 import "../../components/ha-state-icon";
 import "../../components/ha-svg-icon";
+import "../../components/ha-tab-group";
+import "../../components/ha-tab-group-tab";
 import "../../components/ha-two-pane-top-app-bar-fixed";
 import { deleteConfigEntry } from "../../data/config_entries";
 import {
@@ -64,6 +66,7 @@ import { showVoiceCommandDialog } from "../../dialogs/voice-command-dialog/show-
 import { haStyle } from "../../resources/styles";
 import type { HomeAssistant } from "../../types";
 import "../lovelace/cards/hui-card";
+import "./ha-shopping-budget";
 import { showTodoItemEditDialog } from "./show-dialog-todo-item-editor";
 
 @customElement("ha-panel-todo")
@@ -91,6 +94,13 @@ class PanelTodo extends LitElement {
   private _appliedDefaultShoppingList?: string;
 
   @state() private _syncing = false;
+
+  @state()
+  @storage({
+    key: "todoSelectedTab",
+    state: true,
+  })
+  private _selectedTab: "list" | "budget" = "list";
 
   private _openAddItemFromUrl = false;
 
@@ -281,6 +291,13 @@ class PanelTodo extends LitElement {
     }
   }
 
+  private _handleTabShow(ev: CustomEvent<{ name: string }>): void {
+    const tab = ev.detail?.name;
+    if (tab === "list" || tab === "budget") {
+      this._selectedTab = tab;
+    }
+  }
+
   private _listMoved(ev: HASSDomEvent<HASSDomEvents["item-moved"]>): void {
     ev.stopPropagation();
     const { oldIndex, newIndex } = ev.detail;
@@ -302,6 +319,10 @@ class PanelTodo extends LitElement {
       ? this.hass.states[this._entityId]
       : undefined;
     const showPane = this._showPaneController.value ?? !this.narrow;
+    const budgetEnabled =
+      isComponentLoaded(this.hass.config, "shopping_budget") &&
+      entityState?.attributes.default_shopping_list === true;
+    const activeTab = budgetEnabled ? this._selectedTab : "list";
     const todoLists = this._orderedTodoLists(this.hass, this._listOrder);
     const platform = entityRegistryEntry?.platform;
     const isGoogleKeepList =
@@ -373,6 +394,38 @@ class PanelTodo extends LitElement {
               : this.hass.localize("panel.todo")
           }
         </div>
+        ${
+          budgetEnabled
+            ? html`<ha-tab-group
+                slot="subRow"
+                @wa-tab-show=${this._handleTabShow}
+              >
+                <ha-tab-group-tab
+                  slot="nav"
+                  panel="list"
+                  .active=${activeTab === "list"}
+                >
+                  ${
+                    this.hass.locale?.language?.startsWith("pt")
+                      ? "Lista"
+                      : this.hass.localize("ui.panel.todo.tab_list") || "List"
+                  }
+                </ha-tab-group-tab>
+                <ha-tab-group-tab
+                  slot="nav"
+                  panel="budget"
+                  .active=${activeTab === "budget"}
+                >
+                  ${
+                    this.hass.locale?.language?.startsWith("pt")
+                      ? "Orçamento"
+                      : this.hass.localize("ui.panel.todo.tab_budget") ||
+                        "Budget"
+                  }
+                </ha-tab-group-tab>
+              </ha-tab-group>`
+            : nothing
+        }
         <ha-sortable
           slot="pane"
           handle-selector=".handle"
@@ -449,21 +502,29 @@ class PanelTodo extends LitElement {
               : nothing
           }
         </ha-dropdown>
-        <div id="columns">
+        <div id="columns" class=${activeTab === "budget" ? "budget" : ""}>
           <div class="column">
             ${
               this._entityId
-                ? html`
-                    <hui-card
-                      .hass=${this.hass}
-                      .config=${this._cardConfig(this._entityId)}
-                    ></hui-card>
-                  `
+                ? activeTab === "budget"
+                  ? html`
+                      <ha-shopping-budget
+                        .hass=${this.hass}
+                        .entityId=${this._entityId}
+                      ></ha-shopping-budget>
+                    `
+                  : html`
+                      <hui-card
+                        .hass=${this.hass}
+                        .config=${this._cardConfig(this._entityId)}
+                      ></hui-card>
+                    `
                 : nothing
             }
           </div>
         </div>
         ${
+          activeTab === "list" &&
           entityState &&
           supportsFeature(entityState, TodoListEntityFeature.CREATE_TODO_ITEM)
             ? html`<ha-button class="fab" size="l" @click=${this._addItem}>
@@ -657,6 +718,12 @@ class PanelTodo extends LitElement {
           flex: 1 0 0;
           max-width: 500px;
           min-width: 0;
+        }
+        #columns.budget .column {
+          max-width: 1100px;
+        }
+        ha-tab-group {
+          width: 100%;
         }
         ha-dropdown {
           display: inline-block;

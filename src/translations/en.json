@@ -11404,6 +11404,8 @@
         }
       },
       "todo": {
+        "tab_list": "List",
+        "tab_budget": "Budget",
         "assist": "[%key:ui::panel::lovelace::menu::assist%]",
         "create_list": "Create list",
         "delete_list": "Delete list",
