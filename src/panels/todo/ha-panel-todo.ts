@@ -5,17 +5,24 @@ import {
   mdiCommentProcessingOutline,
   mdiDelete,
   mdiDotsVertical,
+  mdiDrag,
+  mdiEyeOff,
   mdiInformationOutline,
   mdiPlus,
+  mdiSync,
 } from "@mdi/js";
 import type { CSSResultGroup, PropertyValues, TemplateResult } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { repeat } from "lit/directives/repeat";
 import memoizeOne from "memoize-one";
 import { isComponentLoaded } from "../../common/config/is_component_loaded";
 import { storage } from "../../common/decorators/storage";
 import { fireEvent } from "../../common/dom/fire_event";
-import type { HASSDomCurrentTargetEvent } from "../../common/dom/fire_event";
+import type {
+  HASSDomCurrentTargetEvent,
+  HASSDomEvent,
+} from "../../common/dom/fire_event";
 import { computeStateName } from "../../common/entity/compute_state_name";
 import { supportsFeature } from "../../common/entity/supports-feature";
 import { navigate } from "../../common/navigate";
@@ -31,16 +38,23 @@ import type { HaDropdownSelectEvent } from "../../components/ha-dropdown";
 import "../../components/ha-dropdown-item";
 import type { HaDropdownItem } from "../../components/ha-dropdown-item";
 import "../../components/ha-icon-button";
-import "../../components/ha-list";
 import "../../components/ha-list-item";
+import "../../components/ha-sortable";
 import "../../components/ha-state-icon";
 import "../../components/ha-svg-icon";
 import "../../components/ha-two-pane-top-app-bar-fixed";
 import { deleteConfigEntry } from "../../data/config_entries";
-import { getExtendedEntityRegistryEntry } from "../../data/entity/entity_registry";
+import {
+  getExtendedEntityRegistryEntry,
+  updateEntityRegistryEntry,
+} from "../../data/entity/entity_registry";
 import { fetchIntegrationManifest } from "../../data/integration";
 import type { LovelaceCardConfig } from "../../data/lovelace/config/card";
-import { TodoListEntityFeature, getTodoLists } from "../../data/todo";
+import {
+  TodoListEntityFeature,
+  getTodoLists,
+  type TodoList,
+} from "../../data/todo";
 import { showConfigFlowDialog } from "../../dialogs/config-flow/show-dialog-config-flow";
 import {
   showAlertDialog,
@@ -66,6 +80,17 @@ class PanelTodo extends LitElement {
     state: true,
   })
   private _entityId?: string;
+
+  @storage({
+    key: "todoListOrder",
+    state: true,
+  })
+  private _listOrder?: string[];
+
+  @storage({ key: "todoDefaultShoppingList" })
+  private _appliedDefaultShoppingList?: string;
+
+  @state() private _syncing = false;
 
   private _openAddItemFromUrl = false;
 
@@ -110,11 +135,30 @@ class PanelTodo extends LitElement {
       if (params.entity_id) {
         this._entityId = params.entity_id;
       } else {
-        if (this._entityId && !(this._entityId in this.hass.states)) {
+        if (
+          this._entityId &&
+          (!(this._entityId in this.hass.states) ||
+            this.hass.entities[this._entityId]?.hidden)
+        ) {
           this._entityId = undefined;
         }
+        const lists = this._orderedTodoLists(this.hass, this._listOrder);
+        const defaultList = lists.find(
+          (list) =>
+            this.hass.states[list.entity_id]?.attributes
+              .default_shopping_list === true
+        );
         if (!this._entityId) {
-          this._entityId = getTodoLists(this.hass, false)[0]?.entity_id;
+          this._entityId = defaultList?.entity_id ?? lists[0]?.entity_id;
+          if (defaultList) {
+            this._appliedDefaultShoppingList = defaultList.entity_id;
+          }
+        } else if (
+          defaultList &&
+          this._appliedDefaultShoppingList !== defaultList.entity_id
+        ) {
+          this._entityId = defaultList.entity_id;
+          this._appliedDefaultShoppingList = defaultList.entity_id;
         }
       }
     }
@@ -157,6 +201,31 @@ class PanelTodo extends LitElement {
     );
   }
 
+  private _orderedTodoLists(
+    hass: HomeAssistant,
+    order: string[] | undefined
+  ): TodoList[] {
+    const lists = getTodoLists(hass, false);
+    if (!Array.isArray(order) || !order.length) {
+      return lists;
+    }
+    const orderIndex = new Map(
+      order.map((entityId, index) => [entityId, index])
+    );
+    return lists
+      .map((list, index) => ({
+        list,
+        index,
+        order: orderIndex.get(list.entity_id),
+      }))
+      .sort((a, b) => {
+        const aOrder = a.order ?? Number.MAX_SAFE_INTEGER;
+        const bOrder = b.order ?? Number.MAX_SAFE_INTEGER;
+        return aOrder - bOrder || a.index - b.index;
+      })
+      .map(({ list }) => list);
+  }
+
   private _cardConfig = memoizeOne(
     (entityId: string) =>
       ({
@@ -164,6 +233,66 @@ class PanelTodo extends LitElement {
         entity: entityId,
       }) as LovelaceCardConfig
   );
+
+  private _renderListItem(list: TodoList, withHandle = false): TemplateResult {
+    const item = html`
+      <ha-dropdown-item
+        @click=${this._setEntityId}
+        value=${list.entity_id}
+        .selected=${list.entity_id === this._entityId}
+      >
+        <ha-state-icon
+          .stateObj=${this.hass.states[list.entity_id]}
+          slot="icon"
+        ></ha-state-icon>
+        ${list.name}
+      </ha-dropdown-item>
+    `;
+    if (!withHandle) {
+      return item;
+    }
+    return html`
+      <div class="list-row">
+        <ha-svg-icon
+          class="handle"
+          .path=${mdiDrag}
+          title=${this.hass.localize("ui.panel.config.areas.picker.reorder")}
+        ></ha-svg-icon>
+        ${item}
+      </div>
+    `;
+  }
+
+  private _showKeepSyncButton(): boolean {
+    return this.hass.services.google_keep_sync?.request_sync !== undefined;
+  }
+
+  private async _requestSync(): Promise<void> {
+    if (this._syncing) {
+      return;
+    }
+    this._syncing = true;
+    try {
+      await this.hass.callService("google_keep_sync", "request_sync", {
+        force: true,
+      });
+    } finally {
+      this._syncing = false;
+    }
+  }
+
+  private _listMoved(ev: HASSDomEvent<HASSDomEvents["item-moved"]>): void {
+    ev.stopPropagation();
+    const { oldIndex, newIndex } = ev.detail;
+    const lists = this._orderedTodoLists(this.hass, this._listOrder);
+    const next = lists.map((list) => list.entity_id);
+    const [moved] = next.splice(oldIndex, 1);
+    if (!moved) {
+      return;
+    }
+    next.splice(newIndex, 0, moved);
+    this._listOrder = next;
+  }
 
   protected render(): TemplateResult {
     const entityRegistryEntry = this._entityId
@@ -173,16 +302,34 @@ class PanelTodo extends LitElement {
       ? this.hass.states[this._entityId]
       : undefined;
     const showPane = this._showPaneController.value ?? !this.narrow;
-    const listItems = getTodoLists(this.hass, false).map(
-      (list) =>
-        html`<ha-dropdown-item
-          @click=${this._setEntityId}
-          value=${list.entity_id}
-          .selected=${list.entity_id === this._entityId}
-        >
-          <ha-state-icon .stateObj=${list} slot="icon"></ha-state-icon
-          >${list.name}
-        </ha-dropdown-item> `
+    const todoLists = this._orderedTodoLists(this.hass, this._listOrder);
+    const platform = entityRegistryEntry?.platform;
+    const isGoogleKeepList =
+      platform === "google_keep_sync" ||
+      (platform === undefined &&
+        this._entityId?.startsWith("todo.google_keep_"));
+    const isLocalTodoList = platform === "local_todo";
+    const hideOnlyList =
+      platform !== undefined && !isGoogleKeepList && !isLocalTodoList;
+    const canRemoveList = Boolean(this._entityId);
+    const removeLabel = isGoogleKeepList
+      ? "ui.panel.todo.remove_list"
+      : isLocalTodoList
+        ? "ui.panel.todo.delete_list"
+        : hideOnlyList
+          ? "ui.panel.todo.hide_list"
+          : "ui.panel.todo.remove_list";
+    const removeIcon = hideOnlyList ? mdiEyeOff : mdiDelete;
+    const removeIsDestructive = !hideOnlyList;
+    const listItems = repeat(
+      todoLists,
+      (list) => list.entity_id,
+      (list) => this._renderListItem(list)
+    );
+    const paneListItems = repeat(
+      todoLists,
+      (list) => list.entity_id,
+      (list) => this._renderListItem(list, true)
     );
     return html`
       <ha-two-pane-top-app-bar-fixed
@@ -226,7 +373,13 @@ class PanelTodo extends LitElement {
               : this.hass.localize("panel.todo")
           }
         </div>
-        <ha-list slot="pane" activatable>${listItems}</ha-list>
+        <ha-sortable
+          slot="pane"
+          handle-selector=".handle"
+          @item-moved=${this._listMoved}
+        >
+          <div class="list-pane">${paneListItems}</div>
+        </ha-sortable>
         ${
           showPane && this.hass.user?.is_admin
             ? html`<ha-list-item
@@ -237,6 +390,17 @@ class PanelTodo extends LitElement {
                 <ha-svg-icon .path=${mdiPlus} slot="graphic"></ha-svg-icon>
                 ${this.hass.localize("ui.panel.todo.create_list")}
               </ha-list-item>`
+            : nothing
+        }
+        ${
+          this._showKeepSyncButton()
+            ? html`<ha-icon-button
+                slot="actionItems"
+                .label=${this.hass.localize("ui.common.refresh")}
+                .path=${mdiSync}
+                .disabled=${this._syncing}
+                @click=${this._requestSync}
+              ></ha-icon-button>`
             : nothing
         }
         <ha-dropdown
@@ -267,16 +431,20 @@ class PanelTodo extends LitElement {
             ${this.hass.localize("ui.panel.todo.assist")}
           </ha-dropdown-item>
           ${
-            entityRegistryEntry?.platform === "local_todo"
+            canRemoveList
               ? html` <wa-divider></wa-divider>
                   <ha-dropdown-item
                     value="delete"
-                    variant="danger"
+                    variant=${removeIsDestructive ? "danger" : ""}
                     .disabled=${!this._entityId}
                   >
-                    <ha-svg-icon .path=${mdiDelete} slot="icon" class="warning">
+                    <ha-svg-icon
+                      .path=${removeIcon}
+                      slot="icon"
+                      class=${removeIsDestructive ? "warning" : ""}
+                    >
                     </ha-svg-icon>
-                    ${this.hass.localize("ui.panel.todo.delete_list")}
+                    ${this.hass.localize(removeLabel)}
                   </ha-dropdown-item>`
               : nothing
           }
@@ -322,49 +490,93 @@ class PanelTodo extends LitElement {
     fireEvent(this, "hass-more-info", { entityId: this._entityId });
   }
 
+  private _selectNextList(entityId: string): void {
+    this._entityId = this._orderedTodoLists(this.hass, this._listOrder).find(
+      (list) => list.entity_id !== entityId
+    )?.entity_id;
+  }
+
   private async _deleteList(): Promise<void> {
     if (!this._entityId) {
       return;
     }
 
+    const entityId = this._entityId;
     const entityRegistryEntry = await getExtendedEntityRegistryEntry(
       this.hass,
-      this._entityId
+      entityId
     );
-
-    if (entityRegistryEntry.platform !== "local_todo") {
-      return;
-    }
-
-    const entryId = entityRegistryEntry.config_entry_id;
-
-    if (!entryId) {
-      return;
-    }
+    const platform = entityRegistryEntry.platform;
+    const isGoogleKeepList = platform === "google_keep_sync";
+    const isLocalTodoList = platform === "local_todo";
+    const configEntryId = isLocalTodoList
+      ? entityRegistryEntry.config_entry_id
+      : null;
+    const hideOnly = !isGoogleKeepList && !configEntryId;
+    const name =
+      entityId in this.hass.states
+        ? computeStateName(this.hass.states[entityId])
+        : entityId;
 
     const confirmed = await showConfirmationDialog(this, {
-      title: this.hass.localize("ui.panel.todo.delete_confirm_title", {
-        name:
-          this._entityId in this.hass.states
-            ? computeStateName(this.hass.states[this._entityId])
-            : this._entityId,
-      }),
-      text: this.hass.localize("ui.panel.todo.delete_confirm_text"),
-      confirmText: this.hass!.localize("ui.common.delete"),
+      title: this.hass.localize(
+        hideOnly
+          ? "ui.panel.todo.hide_confirm_title"
+          : "ui.panel.todo.delete_confirm_title",
+        { name }
+      ),
+      text: this.hass.localize(
+        isGoogleKeepList
+          ? "ui.panel.todo.remove_keep_confirm_text"
+          : platform === "shopping_list"
+            ? "ui.panel.todo.hide_shopping_list_confirm_text"
+            : hideOnly
+              ? "ui.panel.todo.hide_confirm_text"
+              : "ui.panel.todo.delete_confirm_text"
+      ),
+      confirmText: this.hass.localize(
+        isGoogleKeepList || hideOnly ? "ui.common.remove" : "ui.common.delete"
+      ),
       dismissText: this.hass!.localize("ui.common.cancel"),
-      destructive: true,
+      destructive: !hideOnly,
     });
 
     if (!confirmed) {
       return;
     }
-    const result = await deleteConfigEntry(this.hass, entryId);
 
-    this._entityId = getTodoLists(this.hass, false)[0]?.entity_id;
+    try {
+      if (isGoogleKeepList) {
+        await this.hass.callService("google_keep_sync", "delete_list", {
+          entity_id: entityId,
+        });
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 500);
+        });
+        this._selectNextList(entityId);
+        return;
+      }
 
-    if (result.require_restart) {
+      if (configEntryId) {
+        const result = await deleteConfigEntry(this.hass, configEntryId);
+
+        this._selectNextList(entityId);
+
+        if (result.require_restart) {
+          showAlertDialog(this, {
+            text: this.hass.localize("ui.panel.todo.restart_confirm"),
+          });
+        }
+        return;
+      }
+
+      await updateEntityRegistryEntry(this.hass, entityId, {
+        hidden_by: "user",
+      });
+      this._selectNextList(entityId);
+    } catch (err) {
       showAlertDialog(this, {
-        text: this.hass.localize("ui.panel.todo.restart_confirm"),
+        text: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -409,6 +621,30 @@ class PanelTodo extends LitElement {
       css`
         :host {
           display: block;
+        }
+        ha-sortable {
+          display: block;
+        }
+        .list-pane {
+          display: flex;
+          flex-direction: column;
+          padding: 4px;
+        }
+        .list-row {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .list-row ha-dropdown-item {
+          flex: 1;
+          min-width: 0;
+        }
+        .handle {
+          --mdc-icon-size: 18px;
+          color: var(--secondary-text-color);
+          cursor: grab;
+          flex-shrink: 0;
+          opacity: 0.6;
         }
         #columns {
           display: flex;

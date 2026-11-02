@@ -11407,10 +11407,16 @@
         "assist": "[%key:ui::panel::lovelace::menu::assist%]",
         "create_list": "Create list",
         "delete_list": "Delete list",
+        "remove_list": "Remove list",
+        "hide_list": "Remove from panel",
         "add_item": "Add item",
         "information": "More info",
         "delete_confirm_title": "Remove {name}?",
         "delete_confirm_text": "Are you sure you want to remove this list and all of its items?",
+        "remove_keep_confirm_text": "The list will be moved to Google Keep trash and removed from Home Assistant.",
+        "hide_shopping_list_confirm_text": "The native Shopping List will be hidden from the Lists panel. To remove it completely, delete the Shopping List integration in Settings.",
+        "hide_confirm_title": "Remove {name} from the panel?",
+        "hide_confirm_text": "Home Assistant cannot delete this list from its source integration. It will only be hidden from the Lists panel and will remain in the original service.",
         "restart_confirm": "Restart Home Assistant to finish removing this to-do list"
       },
       "page-authorize": {

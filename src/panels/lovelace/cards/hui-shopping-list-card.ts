@@ -11,6 +11,16 @@ class HuiShoppingListCard extends HuiTodoListCard {
   override getEntityId(): string | undefined {
     const todoLists = getTodoLists(this.hass!);
     if (todoLists.length) {
+      // Prefer the Keep list explicitly marked as the default shopping list
+      const defaultList = todoLists.find(
+        (list) =>
+          this.hass!.entities[list.entity_id]?.hidden !== true &&
+          this.hass!.states[list.entity_id]?.attributes
+            .default_shopping_list === true
+      );
+      if (defaultList) {
+        return defaultList.entity_id;
+      }
       if (todoLists.length > 1) {
         // find first entity provided by "shopping_list"
         for (const list of todoLists) {
