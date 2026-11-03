@@ -124,6 +124,8 @@ export interface ShoppingBudgetMeta {
   ocr_available: boolean;
   ocr_packages: Record<string, boolean>;
   ocr_language: string;
+  default_market?: string | null;
+  default_market_name?: string | null;
   needs_refresh: boolean;
   refreshing: boolean;
   last_refresh?: string | null;

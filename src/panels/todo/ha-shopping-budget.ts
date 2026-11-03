@@ -1164,6 +1164,13 @@ export class HaShoppingBudget extends LitElement {
     }
     const bestMarketId = budget.overall?.best_market?.id;
     const refreshing = this._refreshing;
+    const hasFlyers = budget.markets.some(
+      (market) => market.type === "assai" || market.type === "bahamas"
+    );
+    const defaultMarketName =
+      budget.meta.default_market_name ||
+      budget.markets.find((market) => market.id === budget.meta.default_market)
+        ?.name;
     return html`
       <div class="budget">
         <div class="budget-header">
@@ -1180,6 +1187,7 @@ export class HaShoppingBudget extends LitElement {
                       ${this._currency(budget.overall.best_market.total)}`
                   : "Ainda não há preços suficientes para comparar os mercados."
               }
+              ${defaultMarketName ? html`<span class="dot">·</span> preço padrão: <strong>${defaultMarketName}</strong>` : nothing}
               ${budget.updated_at ? html`<span class="dot">·</span> atualizado ${this._date(budget.updated_at)}` : nothing}
             </div>
           </div>
@@ -1199,21 +1207,28 @@ export class HaShoppingBudget extends LitElement {
               }
               Preços
             </ha-button>
-            <ha-button
-              appearance="outlined"
-              .disabled=${!!refreshing}
-              @click=${this._refreshFlyers}
-            >
-              ${
-                refreshing === "flyers"
-                  ? html`<ha-spinner slot="start" size="tiny"></ha-spinner>`
-                  : html`<ha-svg-icon
-                      slot="start"
-                      .path=${mdiSync}
-                    ></ha-svg-icon>`
-              }
-              Encartes
-            </ha-button>
+            ${
+              hasFlyers
+                ? html`<ha-button
+                    appearance="outlined"
+                    .disabled=${!!refreshing}
+                    @click=${this._refreshFlyers}
+                  >
+                    ${
+                      refreshing === "flyers"
+                        ? html`<ha-spinner
+                            slot="start"
+                            size="tiny"
+                          ></ha-spinner>`
+                        : html`<ha-svg-icon
+                            slot="start"
+                            .path=${mdiSync}
+                          ></ha-svg-icon>`
+                    }
+                    Encartes
+                  </ha-button>`
+                : nothing
+            }
           </div>
         </div>
 
@@ -1228,7 +1243,7 @@ export class HaShoppingBudget extends LitElement {
             : nothing
         }
         ${
-          !budget.meta.ocr_available
+          hasFlyers && !budget.meta.ocr_available
             ? html`<ha-alert alert-type="warning"
                 >OCR indisponível no servidor: instale Tesseract e Poppler. Use
                 preço manual ou Google.</ha-alert
@@ -1274,8 +1289,11 @@ export class HaShoppingBudget extends LitElement {
 
         <div class="budget-footer">
           <ha-svg-icon .path=${mdiStorefrontOutline}></ha-svg-icon>
-          Preços de encarte podem variar por loja. Confira o encarte e ajuste
-          manualmente quando necessário.
+          ${
+            hasFlyers
+              ? "Preços de encarte podem variar por loja. Confira o encarte e ajuste manualmente quando necessário."
+              : "Preços consultados na loja online do mercado padrão. Ajuste manualmente quando necessário."
+          }
         </div>
       </div>
     `;
