@@ -1,6 +1,7 @@
 import type { HomeAssistant } from "../types";
 
-export type ShoppingBudgetMarketType = "abc" | "assai" | "bahamas" | "manual";
+export type ShoppingBudgetMarketType =
+  "abc" | "atacadao" | "assai" | "bahamas" | "manual";
 
 export interface ShoppingBudgetProduct {
   id: string;
@@ -19,7 +20,7 @@ export interface ShoppingBudgetProductSuggestion extends ShoppingBudgetProduct {
 
 export interface ShoppingBudgetPrice {
   price: number | null;
-  source: "manual" | "abc" | "ocr" | string;
+  source: "manual" | "abc" | "atacadao" | "ocr" | string;
   updated_at?: string | null;
   note?: string | null;
   estimated?: boolean;
@@ -75,6 +76,7 @@ export interface ShoppingBudgetItem {
   prices: Record<string, ShoppingBudgetPrice>;
   ocr_suggestions: Record<string, ShoppingBudgetOcrSuggestion[]>;
   abc_suggestions: Record<string, ShoppingBudgetAbcSuggestion>;
+  atacadao_suggestions?: Record<string, ShoppingBudgetAbcSuggestion>;
   missing_markets: string[];
   best_market: string | null;
   best_price: number | null;
@@ -130,6 +132,7 @@ export interface ShoppingBudgetMeta {
   refreshing: boolean;
   last_refresh?: string | null;
   abc_store?: Record<string, unknown> | null;
+  atacadao_store?: Record<string, unknown> | null;
   catalog_size: number;
   errors: string[];
   market_errors: Record<string, string[]>;

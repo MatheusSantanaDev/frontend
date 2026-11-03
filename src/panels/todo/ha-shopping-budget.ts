@@ -611,7 +611,7 @@ export class HaShoppingBudget extends LitElement {
     }
   }
 
-  private _handleAbcClick(ev: Event): void {
+  private _handleOnlineSuggestionClick(ev: Event): void {
     const item = this._itemFromEvent(ev);
     const market = this._marketFromEvent(ev);
     const price = Number((ev.currentTarget as HTMLElement).dataset.price || 0);
@@ -715,6 +715,9 @@ export class HaShoppingBudget extends LitElement {
     }
     if (price.source === "abc") {
       return "ABC";
+    }
+    if (price.source === "atacadao") {
+      return "Atacadão";
     }
     if (price.source === "ocr") {
       return "encarte (OCR)";
@@ -872,12 +875,16 @@ export class HaShoppingBudget extends LitElement {
     `;
   }
 
-  private _renderAbcSuggestion(
+  private _renderOnlineSuggestion(
     item: ShoppingBudgetItem,
     market: ShoppingBudgetMarket
   ): TemplateResult | typeof nothing {
-    const suggestion: ShoppingBudgetAbcSuggestion | undefined =
-      item.abc_suggestions?.[market.id];
+    let suggestion: ShoppingBudgetAbcSuggestion | undefined;
+    if (market.type === "abc") {
+      suggestion = item.abc_suggestions?.[market.id];
+    } else if (market.type === "atacadao") {
+      suggestion = item.atacadao_suggestions?.[market.id];
+    }
     if (!suggestion) {
       return nothing;
     }
@@ -885,15 +892,15 @@ export class HaShoppingBudget extends LitElement {
       <div class="ocr-suggestions">
         <button
           class="ocr-chip abc-chip"
-          title=${suggestion.product_name || "Sugestão ABC"}
+          title=${suggestion.product_name || `Sugestão ${market.name}`}
           data-uid=${item.uid}
           data-market=${market.id}
           data-price=${suggestion.price}
-          @click=${this._handleAbcClick}
+          @click=${this._handleOnlineSuggestionClick}
           ?disabled=${this._busy === this._draftKey(item.uid, market.id)}
         >
           <ha-svg-icon .path=${mdiStorefrontOutline}></ha-svg-icon>
-          ABC ${this._currency(suggestion.price)}
+          ${market.name} ${this._currency(suggestion.price)}
           ${
             suggestion.confidence
               ? html`<span>${Math.round(suggestion.confidence * 100)}%</span>`
@@ -936,7 +943,7 @@ export class HaShoppingBudget extends LitElement {
           ${price?.note ? html`<span class="price-note">${price.note}</span>` : nothing}
         </div>
         ${this._renderOcrSuggestions(item, market)}
-        ${this._renderAbcSuggestion(item, market)}
+        ${this._renderOnlineSuggestion(item, market)}
         <div class="manual-price">
           <ha-input
             type="text"
@@ -1292,7 +1299,7 @@ export class HaShoppingBudget extends LitElement {
           ${
             hasFlyers
               ? "Preços de encarte podem variar por loja. Confira o encarte e ajuste manualmente quando necessário."
-              : "Preços consultados na loja online do mercado padrão. Ajuste manualmente quando necessário."
+              : "Preços consultados nas lojas online do ABC e do Atacadão. Ajuste manualmente quando necessário."
           }
         </div>
       </div>
